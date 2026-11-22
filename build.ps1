@@ -9,7 +9,8 @@ $version = python -c "import organizador; print(organizador.__version__)"
 New-Item -ItemType Directory -Force installer\build | Out-Null
 python -c "from organizador import termos; [open(f'installer/build/termos_{k}.txt','w',encoding='utf-8-sig').write(v) for k,v in termos.TERMS.items()]"
 
-python -m PyInstaller --noconfirm --windowed --name OrganizadorMusica app.py
+# librosa fica de fora (centenas de MB): no .exe o BPM vem so da tag
+python -m PyInstaller --noconfirm --windowed --name OrganizadorMusica --exclude-module librosa --exclude-module numba --exclude-module scipy --exclude-module sklearn app.py
 
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
           "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
