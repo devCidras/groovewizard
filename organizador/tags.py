@@ -133,16 +133,49 @@ def norm(s):
     return re.sub(r"[\W_]+", " ", s).strip()  # accents dropped, other scripts kept
 
 
-def artist_title(path):
-    """(artist, title) from tags, else from 'Artist - Title' file name; None if neither."""
-    a = t = ""
+_ARTIST = {"id3": "TPE1", "vorbis": "artist", "mp4": "\xa9ART"}
+_TITLE = {"id3": "TIT2", "vorbis": "title", "mp4": "\xa9nam"}
+
+
+def _first(tags, key):
     try:
-        f = mutagen.File(path, easy=True)
-        if f and f.tags:
-            a = (f.tags.get("artist") or [""])[0]
-            t = (f.tags.get("title") or [""])[0]
+        v = tags.get(key)
     except Exception:
-        pass
+        return ""
+    if v is None:
+        return ""
+    v = v.text if hasattr(v, "text") else v
+    return str(v[0]) if v else ""
+
+
+def read_info(path):
+    """Everything the organizer needs from one file, with a single open: genre text, artist, title, duration."""
+    f = _open(path)
+    info = {"genre": "", "artist": "", "title": "", "duration": 0.0}
+    if not f:
+        return info
+    info["duration"] = f.info.length if f.info else 0.0
+    if not f.tags:
+        return info
+    ext = os.path.splitext(path)[1].lower()
+    kind = "id3" if ext in ID3_EXT else "mp4" if ext == ".m4a" else "vorbis"
+    info["artist"], info["title"] = _first(f.tags, _ARTIST[kind]), _first(f.tags, _TITLE[kind])
+    for k in GENRE_KEYS:
+        try:
+            if k in f.tags:
+                v = f.tags[k]
+                v = v.text if hasattr(v, "text") else v
+                info["genre"] = " | ".join(str(x) for x in v)
+                break
+        except Exception:
+            pass
+    return info
+
+
+def artist_title(path, info=None):
+    """(artist, title) from tags, else from 'Artist - Title' file name; None if neither."""
+    info = info or read_info(path)
+    a, t = info["artist"], info["title"]
     if not (a and t):
         stem = LEADING_NUM.sub("", JUNK.sub("", os.path.splitext(os.path.basename(path))[0]))
         if " - " not in stem:
@@ -167,9 +200,9 @@ def title_key(t, merge_versions=True):
     return norm(t)
 
 
-def track_key(path, merge_versions=True):
+def track_key(path, merge_versions=True, info=None):
     """Same song = same artists (any order, feat ignored) + same title (mix name ignored)."""
-    at = artist_title(path)
+    at = artist_title(path, info)
     if not at:
         return None
     a, t = artists_key(at[0]), title_key(at[1], merge_versions)

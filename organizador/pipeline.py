@@ -26,8 +26,8 @@ from . import bpm as bpm_mod
 from .online import Lookup
 from .i18n import t
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
-from .tags import (LIST_SEP, LOSSLESS, SPAM, clean_sites, duration, fix_tags, genre_from_folder, genre_of, is_audio,
-                   normalize_genre, raw_genre, restore, search_terms, snapshot, track_key)
+from .tags import (LIST_SEP, LOSSLESS, SPAM, clean_sites, fix_tags, genre_from_folder, is_audio, normalize_genre,
+                   raw_genre, read_info, restore, search_terms, snapshot, track_key)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Cratekeeper")
 _OLD_DIR = os.path.join(os.path.dirname(APP_DIR), "OrganizadorMusica")  # name before v0.2
@@ -233,6 +233,19 @@ class Organizer:
                 if is_audio(n):
                     yield os.path.join(dp, n)
 
+    def _read_all(self, files, step):
+        """{path: info} read in parallel, cancellable."""
+        out = {}
+        ex = ThreadPoolExecutor(8)
+        try:
+            for i, (p, info) in enumerate(zip(files, ex.map(read_info, files)), 1):
+                if i % 50 == 0 or i == len(files):
+                    self._tick(step, i, len(files), os.path.basename(p))
+                out[p] = info
+        finally:
+            ex.shutdown(wait=True, cancel_futures=True)
+        return out
+
     def _save_overrides(self):
         tmp = self._overrides_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -361,7 +374,7 @@ class Organizer:
         if proc.returncode != 0:
             raise RuntimeError(err.decode(errors="replace").strip()[:200] or f"7-Zip erro {proc.returncode}")
 
-    def plan_genre(self, path):
+    def plan_genre(self, path, info=None):
         name = os.path.basename(path)
         rel = os.path.relpath(path, self.root).split(os.sep)
         pack = rel[1] if rel[0] == INBOX and len(rel) > 2 else None
@@ -369,13 +382,15 @@ class Organizer:
         if g == NO_GENRE:  # taken out of a guessed genre on purpose
             return NO_GENRE
         # tag first: overrides are keyed by file name, which another track may share
-        return genre_of(path) or g or genre_from_folder(path, pack) or NO_GENRE
+        tag = normalize_genre((info or read_info(path))["genre"])
+        return tag or g or genre_from_folder(path, pack) or NO_GENRE
 
     def step_organize(self):
         files = list(self.audio_files())
+        infos = self._read_all(files, "organize")
         for i, p in enumerate(files, 1):
             self._tick("organize", i, len(files), os.path.basename(p))
-            g = self.plan_genre(p)
+            g = self.plan_genre(p, infos[p])
             if not self.in_place(p, g) and self.move(p, self.target_dir(g)):
                 self.report[f"moved|{self.label(g)}"] += 1
         inbox = os.path.join(self.root, INBOX)
@@ -402,16 +417,10 @@ class Organizer:
     def step_dedupe(self):
         files = list(self.audio_files())
         groups = defaultdict(list)
-        ex = ThreadPoolExecutor(8)
-        try:
-            mv = self.opts.merge_versions
-            for i, (p, key, dur) in enumerate(ex.map(lambda p: (p, track_key(p, mv), duration(p)), files), 1):
-                if i % 50 == 0 or i == len(files):
-                    self._tick("dedupe_scan", i, len(files))
-                if key:
-                    groups[key].append((p, dur))
-        finally:
-            ex.shutdown(wait=True, cancel_futures=True)  # on cancel: don't read the rest
+        for p, info in self._read_all(files, "dedupe_scan").items():
+            key = track_key(p, self.opts.merge_versions, info)
+            if key:
+                groups[key].append((p, info["duration"]))
         dups = [sorted(v, key=lambda x: self._score(*x), reverse=True) for v in groups.values() if len(v) > 1]
         losers = [p for v in dups for p, _ in v[1:] if os.path.exists(p)]
         for i, p in enumerate(losers, 1):
@@ -531,13 +540,12 @@ class Organizer:
         rep["archives_pending"] = len(self.pending_archives())
         files = list(self.audio_files())
         groups = Counter()
-        for i, p in enumerate(files, 1):
-            self._tick("preview", i, len(files), os.path.basename(p))
-            g = self.plan_genre(p)
+        for p, info in self._read_all(files, "preview").items():
+            g = self.plan_genre(p, info)
             if not self.in_place(p, g):
                 rep[f"to_move|{self.label(g)}"] += 1
             if self.opts.dedupe:
-                k = track_key(p, self.opts.merge_versions)
+                k = track_key(p, self.opts.merge_versions, info)
                 if k:
                     groups[k] += 1
         rep["tracks"] = len(files)
