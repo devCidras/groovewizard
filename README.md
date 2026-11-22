@@ -1,3 +1,5 @@
+<p align="center"><img src="organizador/recursos/cratekeeper.png" width="128" alt="Cratekeeper"></p>
+
 # Cratekeeper
 
 App para Windows que arruma uma biblioteca de música de DJ: extrai os packs descarregados, separa as faixas por género (e subgénero), remove repetidas ficando com a Extended Mix, procura online o género das que não o têm e limpa as tags (sites de download no Álbum, listas de géneros, etc.).

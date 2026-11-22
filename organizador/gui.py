@@ -5,7 +5,7 @@ import threading
 import traceback
 
 from PySide6.QtCore import QObject, QPropertyAnimation, QRectF, QSize, Qt, QThread, Signal, Property
-from PySide6.QtGui import QColor, QKeySequence, QPainter, QShortcut
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
@@ -19,6 +19,7 @@ from .theme import C, QSS
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
 EXTRA_OPTIONS = ["clean_sites", "families", "musicbrainz", "delete_archives"]
+ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper.png")
 
 
 def opt_key(field):
@@ -158,6 +159,10 @@ class Window(QMainWindow):
 
         # header
         head = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(QPixmap(ICON).scaled(52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        head.addWidget(logo, 0, Qt.AlignTop)
+        head.addSpacing(10)
         titles = QVBoxLayout()
         titles.setSpacing(2)
         titles.addWidget(QLabel(t("app.title"), objectName="title"))
@@ -470,6 +475,7 @@ def first_run():
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
+    app.setWindowIcon(QIcon(ICON))
     if not first_run():
         sys.exit(0)
     w = Window()

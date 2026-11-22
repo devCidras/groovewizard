@@ -21,6 +21,7 @@ OutputBaseFilename=Cratekeeper-{#AppVersion}-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\organizador\recursos\cratekeeper.ico
 UninstallDisplayIcon={app}\Cratekeeper.exe
 ShowLanguageDialog=yes
 
