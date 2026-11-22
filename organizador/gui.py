@@ -6,34 +6,27 @@ import traceback
 
 from PySide6.QtCore import QObject, QPropertyAnimation, QRectF, QSize, Qt, QThread, Signal, Property
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QShortcut
-from PySide6.QtWidgets import (QAbstractButton, QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+                               QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
-from . import __version__, config
+from . import __version__, config, termos
+from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
 from .pipeline import Cancelled, Options, Organizer, undo_last
 from .theme import C, QSS
 
-# (Options field, title, description, pipeline step names it covers)
-STEPS = [
-    ("extract", "Extrair packs", "Descompacta .zip, .rar e .7z (os .rar/.7z precisam do 7-Zip).", ["Extrair"]),
-    ("_organize", "Arrumar por género", "Pela tag Genre; sem tag, pelo nome do pack.", ["Organizar por genero"]),
-    ("dedupe", "Remover repetidas", "Fica a Extended, senão a mais longa. As outras vão para a Reciclagem.",
-     ["Procurar repetidas", "Remover repetidas"]),
-    ("online", "Procurar género online", "Discogs e Last.fm para as faixas sem género.", ["Procurar genero online"]),
-    ("bpm_folders", "Separar por BPM", "'Sem Genero' e 'Outros' em pastas de BPM 122-128, 128-135...", ["Separar por BPM"]),
-    ("write_tags", "Gravar género na tag", "O rekordbox / Serato passam a mostrar o género certo.", ["Corrigir tags"]),
-]
-EXTRA_OPTIONS = [
-    ("clean_sites", "Limpar sites das tags", "Tira 'djsoundtop.com' e afins do Álbum, Título, Comentário..."),
-    ("families", "Agrupar em pastas-mãe", "House / Tech House, Techno / Hard Techno, Melodic & Indie..."),
-    ("musicbrainz", "Usar também o MusicBrainz", "Sem chave, mas lento (1 pedido por segundo)."),
-    ("delete_archives", "Enviar compactados para a Reciclagem", "Depois de extraídos com sucesso."),
-]
+# (Options field, pipeline step ids shown on that row). "_organize" always runs.
+STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
+         ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
+EXTRA_OPTIONS = ["clean_sites", "families", "musicbrainz", "delete_archives"]
+
+
+def opt_key(field):
+    return "opt." + field.lstrip("_")
 
 
 class Toggle(QAbstractButton):
-    """iOS-style switch; keyboard accessible (Space toggles), visible focus ring."""
+    """Switch; keyboard accessible (Space toggles), visible focus ring."""
 
     def __init__(self, checked=False, parent=None):
         super().__init__(parent)
@@ -68,8 +61,8 @@ class Toggle(QAbstractButton):
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(1, 1, self.width() - 2, self.height() - 2)
         off, on = QColor(C["muted"]), QColor(C["accent"])
-        track = QColor(off.red() + (on.red() - off.red()) * self._pos, off.green() + (on.green() - off.green()) * self._pos,
-                       off.blue() + (on.blue() - off.blue()) * self._pos)
+        mix = lambda a, b: int(a + (b - a) * self._pos)
+        track = QColor(mix(off.red(), on.red()), mix(off.green(), on.green()), mix(off.blue(), on.blue()))
         if not self.isEnabled():
             track.setAlpha(90)
         p.setPen(QColor(C["secondary_hover"]) if self.hasFocus() else Qt.NoPen)
@@ -90,15 +83,14 @@ def card(title=None, subtitle=None):
     if title:
         lay.addWidget(QLabel(title, objectName="cardTitle"))
     if subtitle:
-        s = QLabel(subtitle, objectName="hint", wordWrap=True, openExternalLinks=True)
-        lay.addWidget(s)
+        lay.addWidget(QLabel(subtitle, objectName="hint", wordWrap=True, openExternalLinks=True))
     return f, lay
 
 
 class StepRow(QWidget):
     """Status dot + title + live counter."""
-    COLORS = {"espera": C["muted"], "a correr": C["secondary_hover"], "feito": C["accent"], "desligado": "#3A3A55",
-              "erro": C["danger"]}
+    COLORS = {"waiting": C["muted"], "running": C["secondary_hover"], "done": C["accent"], "off": "#3A3A55",
+              "error": C["danger"]}
 
     def __init__(self, title):
         super().__init__()
@@ -107,17 +99,19 @@ class StepRow(QWidget):
         self.dot = QLabel(fixedSize=QSize(12, 12))
         self.title = QLabel(title)
         self.state = QLabel(objectName="hint")
+        self.current = "waiting"
         lay.addWidget(self.dot)
         lay.addSpacing(8)
         lay.addWidget(self.title, 1)
         lay.addWidget(self.state)
-        self.set("espera")
+        self.set("waiting")
 
     def set(self, state, text=None):
+        self.current = state
         self.dot.setStyleSheet(f"background:{self.COLORS[state]}; border-radius:6px;")
-        self.title.setStyleSheet(f"color:{C['fg'] if state != 'desligado' else '#5B6478'};"
-                                 f"font-weight:{600 if state == 'a correr' else 400};")
-        self.state.setText(text if text is not None else ("" if state == "espera" else state))
+        self.title.setStyleSheet(f"color:{C['fg'] if state != 'off' else '#5B6478'};"
+                                 f"font-weight:{600 if state == 'running' else 400};")
+        self.state.setText(text if text is not None else t("state." + state))
 
 
 class Worker(QObject):
@@ -139,7 +133,7 @@ class Worker(QObject):
                 rep, errs = (org.preview(), []) if self.kind == "preview" else org.run()
             self.finished.emit(self.kind, rep, errs)
         except Cancelled:
-            self.failed.emit("Cancelado. O que já foi feito fica feito e pode ser desfeito.")
+            self.failed.emit(t("msg.cancelled"))
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -147,12 +141,16 @@ class Worker(QObject):
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Organizador de Música")
+        self.setWindowTitle(t("app.title"))
         self.resize(1080, 760)
         self.setMinimumSize(900, 620)
-        opts, keys = config.load()
         self.thread = None
+        self.build()
+        QShortcut(QKeySequence("F1"), self, self.show_help)
 
+    def build(self):
+        opts, keys = config.load()
+        self.folder_lang = opts.folder_lang
         root = QWidget(objectName="root")
         outer = QVBoxLayout(root)
         outer.setContentsMargins(28, 24, 28, 24)
@@ -162,15 +160,22 @@ class Window(QMainWindow):
         head = QHBoxLayout()
         titles = QVBoxLayout()
         titles.setSpacing(2)
-        titles.addWidget(QLabel("Organizador de Música", objectName="title"))
-        titles.addWidget(QLabel("Arruma a tua biblioteca por género, sem repetidas, com as tags limpas.", objectName="subtitle"))
+        titles.addWidget(QLabel(t("app.title"), objectName="title"))
+        titles.addWidget(QLabel(t("app.subtitle"), objectName="subtitle"))
         head.addLayout(titles, 1)
-        for label, tip, fn in (("Ajuda", "Como usar (F1)", self.show_help), ("Sobre", "Quem fez, versão, licença", self.show_about)):
-            b = QPushButton(label, objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=tip)
+        for label, tip, fn in (("btn.help", "btn.help_tip", self.show_help), ("terms.menu", "terms.title", self.show_terms),
+                               ("btn.about", "btn.about_tip", self.show_about)):
+            b = QPushButton(t(label), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t(tip))
             b.clicked.connect(fn)
             head.addWidget(b, 0, Qt.AlignTop)
+        self.lang_combo = QComboBox(toolTip=t("lang.tip"))
+        self.lang_combo.setAccessibleName(t("lang.tip"))
+        for code, name in LANGS.items():
+            self.lang_combo.addItem(name, code)
+        self.lang_combo.setCurrentIndex(list(LANGS).index(lang()))
+        self.lang_combo.currentIndexChanged.connect(self.change_lang)
+        head.addWidget(self.lang_combo, 0, Qt.AlignTop)
         head.addWidget(QLabel(f"v{__version__}", objectName="badge"), 0, Qt.AlignTop)
-        QShortcut(QKeySequence("F1"), self, self.show_help)
         outer.addLayout(head)
 
         cols = QHBoxLayout()
@@ -183,39 +188,38 @@ class Window(QMainWindow):
         ll.setContentsMargins(0, 0, 6, 0)
         ll.setSpacing(16)
 
-        c, lay = card("Biblioteca", "A pasta onde estão as tuas músicas. Fecha o rekordbox / Serato antes de organizar.")
+        c, lay = card(t("card.library"), t("card.library_hint"))
         row = QHBoxLayout()
-        self.folder = QLineEdit(opts.root, placeholderText=r"ex.: D:\musica")
-        self.folder.setAccessibleName("Pasta das músicas")
-        pick = QPushButton("Escolher…", cursor=Qt.PointingHandCursor)
+        self.folder = QLineEdit(opts.root, placeholderText=t("folder.placeholder"))
+        self.folder.setAccessibleName(t("folder.dialog"))
+        pick = QPushButton(t("folder.pick"), cursor=Qt.PointingHandCursor)
         pick.clicked.connect(self.pick_folder)
         row.addWidget(self.folder, 1)
         row.addWidget(pick)
         lay.addLayout(row)
         ll.addWidget(c)
 
-        c, lay = card("Fontes online", 'Chaves grátis, guardadas só neste PC. '
-                      '<a style="color:#22C55E" href="https://www.discogs.com/settings/developers">Criar token Discogs</a> · '
-                      '<a style="color:#22C55E" href="https://www.last.fm/api/account/create">Criar chave Last.fm</a>')
+        link = '<a style="color:{c}" href="{h}">{x}</a>'
+        c, lay = card(t("card.online"), t("card.online_hint",
+                      discogs=link.format(c=C["accent"], h="https://www.discogs.com/settings/developers", x=t("link.discogs")),
+                      lastfm=link.format(c=C["accent"], h="https://www.last.fm/api/account/create", x=t("link.lastfm"))))
         self.discogs = self._secret(lay, "Discogs token", keys.get("discogs_token", ""))
         self.lastfm = self._secret(lay, "Last.fm API key", keys.get("lastfm_api_key", ""))
         ll.addWidget(c)
 
-        c, lay = card("Passos")
+        c, lay = card(t("card.steps"))
         self.toggles = {}
-        for field, title, desc, _ in STEPS:
-            if field.startswith("_"):
-                continue  # sorting by genre always runs
-            self.toggles[field] = self._option(lay, title, desc, getattr(opts, field))
-        lay.addWidget(QLabel("Mais opções", objectName="cardTitle"))
-        for field, title, desc in EXTRA_OPTIONS:
-            self.toggles[field] = self._option(lay, title, desc, getattr(opts, field))
+        for field, _ in STEPS:
+            if not field.startswith("_"):
+                self.toggles[field] = self._option(lay, field, getattr(opts, field))
+        lay.addWidget(QLabel(t("card.more"), objectName="cardTitle"))
+        for field in EXTRA_OPTIONS:
+            self.toggles[field] = self._option(lay, field, getattr(opts, field))
         ll.addWidget(c)
         ll.addStretch()
 
         scroll = QScrollArea(widgetResizable=True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # content follows the column width
-        left.setMinimumWidth(0)
         left.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         scroll.setWidget(left)
         scroll.setMinimumWidth(440)
@@ -226,12 +230,10 @@ class Window(QMainWindow):
         right.setSpacing(16)
         c, lay = card()
         btns = QHBoxLayout()
-        self.btn_run = QPushButton("Organizar", objectName="primary", cursor=Qt.PointingHandCursor)
-        self.btn_preview = QPushButton("Pré-visualizar", cursor=Qt.PointingHandCursor)
-        self.btn_preview.setToolTip("Mostra o que ia mudar, sem mexer em nada.")
-        self.btn_cancel = QPushButton("Cancelar", objectName="danger", cursor=Qt.PointingHandCursor, enabled=False)
-        self.btn_undo = QPushButton("Desfazer última", objectName="ghost", cursor=Qt.PointingHandCursor)
-        self.btn_undo.setToolTip("Devolve os ficheiros movidos na última vez.")
+        self.btn_run = QPushButton(t("btn.run"), objectName="primary", cursor=Qt.PointingHandCursor)
+        self.btn_preview = QPushButton(t("btn.preview"), cursor=Qt.PointingHandCursor, toolTip=t("btn.preview_tip"))
+        self.btn_cancel = QPushButton(t("btn.cancel"), objectName="danger", cursor=Qt.PointingHandCursor, enabled=False)
+        self.btn_undo = QPushButton(t("btn.undo"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.undo_tip"))
         self.btn_run.clicked.connect(lambda: self.start("run"))
         self.btn_preview.clicked.connect(lambda: self.start("preview"))
         self.btn_cancel.clicked.connect(self.do_cancel)
@@ -242,34 +244,34 @@ class Window(QMainWindow):
         btns.addWidget(self.btn_undo)
         lay.addLayout(btns)
         self.bar = QProgressBar(textVisible=False)
-        self.status = QLabel("Pronto.", objectName="hint")
+        self.status = QLabel(t("status.ready"), objectName="hint")
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(self.bar)
         lay.addWidget(self.status)
         right.addWidget(c)
 
-        c, lay = card("Progresso")
-        self.rows = {}
-        for field, title, _, names in STEPS:
-            r = StepRow(title)
+        c, lay = card(t("card.progress"))
+        self.rows, self.step_rows = {}, []
+        for field, ids in STEPS:
+            r = StepRow(t(opt_key(field)))
             lay.addWidget(r)
-            for n in names:
-                self.rows[n] = (field, r)
-        self.step_rows = [(f, r) for f, r in dict((f, r) for f, r in self.rows.values()).items()]
+            self.step_rows.append((field, r))
+            for i in ids:
+                self.rows[i] = r
         right.addWidget(c)
 
-        c, lay = card("Resumo")
+        c, lay = card(t("card.summary"))
         self.stats_grid = QGridLayout()
         self.stats_grid.setHorizontalSpacing(24)
         lay.addLayout(self.stats_grid)
-        self.log = QPlainTextEdit(readOnly=True, placeholderText="Os detalhes de cada execução aparecem aqui.")
+        self.log = QPlainTextEdit(readOnly=True, placeholderText=t("log.placeholder"))
         self.log.setMinimumHeight(140)
         lay.addWidget(self.log, 1)
         right.addWidget(c, 1)
         cols.addLayout(right, 6)
 
         self.setCentralWidget(root)
-        self.reset_rows()
+        self.setWindowTitle(t("app.title"))
 
     # ---------- building blocks ----------
 
@@ -278,25 +280,24 @@ class Window(QMainWindow):
         row = QHBoxLayout()
         e = QLineEdit(value, echoMode=QLineEdit.Password)
         e.setAccessibleName(label)
-        show = QPushButton("Mostrar", objectName="ghost", cursor=Qt.PointingHandCursor, checkable=True)
+        show = QPushButton(t("btn.show"), objectName="ghost", cursor=Qt.PointingHandCursor, checkable=True)
         show.toggled.connect(lambda on: (e.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password),
-                                         show.setText("Esconder" if on else "Mostrar")))
+                                         show.setText(t("btn.hide") if on else t("btn.show"))))
         row.addWidget(e, 1)
         row.addWidget(show)
         lay.addLayout(row)
         return e
 
-    def _option(self, lay, title, desc, checked):
+    def _option(self, lay, field, checked):
         row = QHBoxLayout()
         text = QVBoxLayout()
         text.setSpacing(1)
-        t = QLabel(title)
-        d = QLabel(desc, objectName="stepDesc", wordWrap=True)
-        text.addWidget(t)
-        text.addWidget(d)
+        title = QLabel(t(opt_key(field)))
+        text.addWidget(title)
+        text.addWidget(QLabel(t(opt_key(field) + "_d"), objectName="stepDesc", wordWrap=True))
         tg = Toggle(checked)
-        tg.setAccessibleName(title)
-        t.setBuddy(tg)
+        tg.setAccessibleName(title.text())
+        title.setBuddy(tg)
         row.addLayout(text, 1)
         row.addWidget(tg, 0, Qt.AlignVCenter)
         lay.addLayout(row)
@@ -304,49 +305,63 @@ class Window(QMainWindow):
 
     # ---------- actions ----------
 
+    def change_lang(self):
+        if self.thread and self.thread.isRunning():
+            return
+        self.current()  # keep what was typed
+        set_lang(self.lang_combo.currentData())
+        config.put("idioma", lang())
+        self.build()
+
     def show_help(self):
-        from .ajuda import HELP, InfoDialog
-        InfoDialog("Ajuda — Organizador de Música", HELP, self).exec()
+        from .ajuda import InfoDialog, help_html
+        InfoDialog(t("btn.help"), help_html(), self).exec()
 
     def show_about(self):
-        from .ajuda import ABOUT, InfoDialog
-        InfoDialog("Sobre", ABOUT, self, (540, 540)).exec()
+        from .ajuda import InfoDialog, about_html
+        InfoDialog(t("btn.about"), about_html(), self, (540, 540)).exec()
+
+    def show_terms(self):
+        from .ajuda import TermsView
+        TermsView(self).exec()
 
     def pick_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Pasta das músicas", self.folder.text())
+        d = QFileDialog.getExistingDirectory(self, t("folder.dialog"), self.folder.text())
         if d:
             self.folder.setText(os.path.normpath(d))
 
     def current(self):
-        opts = Options(root=self.folder.text().strip(), **{f: t.isChecked() for f, t in self.toggles.items()})
+        opts = Options(root=self.folder.text().strip(), folder_lang=self.folder_lang,
+                       **{f: tg.isChecked() for f, tg in self.toggles.items()})
         keys = {"discogs_token": self.discogs.text().strip(), "lastfm_api_key": self.lastfm.text().strip()}
         config.save(opts, keys)
         return opts, keys
 
     def busy(self, on):
-        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.folder, *self.toggles.values()):
+        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.folder, self.lang_combo, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
 
-    def reset_rows(self, opts=None, kind="run"):
+    def reset_rows(self, opts, kind):
         for field, r in self.step_rows:
-            enabled = field.startswith("_") or (opts is None or getattr(opts, field, True))
-            if field == "write_tags" and opts is not None:
-                enabled = opts.write_tags or opts.clean_sites
             if kind == "preview":
-                enabled = field in ("_organize", "extract", "dedupe")
-            r.set("espera" if enabled else "desligado")
+                on = field in ("_organize", "extract", "dedupe")
+            elif kind == "undo":
+                on = False
+            elif field == "write_tags":
+                on = opts.write_tags or opts.clean_sites
+            else:
+                on = field.startswith("_") or getattr(opts, field)
+            r.set("waiting" if on else "off")
 
     def start(self, kind, opts=None, keys=None):
         if opts is None:
             opts, keys = self.current()
         if not os.path.isdir(opts.root):
-            QMessageBox.warning(self, "Biblioteca", "Escolhe a pasta das músicas.")
+            QMessageBox.warning(self, t("card.library"), t("msg.pick_folder"))
             self.folder.setFocus()
             return
-        if kind == "run" and QMessageBox.question(
-                self, "Organizar", f"Vai mover e renomear ficheiros em:\n{opts.root}\n\n"
-                "O rekordbox / Serato tem de estar fechado. No fim faz 'Relocate' nele.\n\nContinuar?") != QMessageBox.Yes:
+        if kind == "run" and QMessageBox.question(self, t("btn.run"), t("msg.run_confirm", root=opts.root)) != QMessageBox.Yes:
             return
         self.reset_rows(opts, kind)
         self.current_row = None
@@ -362,57 +377,54 @@ class Window(QMainWindow):
         for sig in (self.worker.finished, self.worker.failed):
             sig.connect(self.thread.quit)
         self.busy(True)
-        label = {"preview": "Pré-visualizar", "run": "Organizar", "undo": "Desfazer"}[kind]
-        self.log.appendPlainText(f"— {label}: {opts.root}")
-        self.status.setText("A começar…")
+        self.log.appendPlainText(f"— {t('log.kind.' + kind)}: {opts.root}")
+        self.status.setText(t("status.starting"))
         self.thread.start()
 
     def undo(self):
         opts, keys = self.current()
-        if QMessageBox.question(self, "Desfazer", "Devolver os ficheiros movidos na última vez?\n"
-                                "O que foi para a Reciclagem restaura-se pelo Windows.") == QMessageBox.Yes:
+        if QMessageBox.question(self, t("btn.undo"), t("msg.undo_confirm")) == QMessageBox.Yes:
             self.start("undo", opts, keys)
 
     def do_cancel(self):
         self.cancel.set()
         self.btn_cancel.setEnabled(False)
-        self.status.setText("A cancelar… (termina o ficheiro atual)")
+        self.status.setText(t("status.cancelling"))
 
     def on_progress(self, step, i, n, msg):
         self.bar.setMaximum(max(n, 1))
         self.bar.setValue(i)
-        self.status.setText(f"{msg}" if msg else step)
-        hit = self.rows.get(step)
-        if hit:
-            row = hit[1]
+        self.status.setText(msg or t("step." + step))
+        row = self.rows.get(step)
+        if row:
             if self.current_row is not None and self.current_row is not row:
-                self.current_row.set("feito")
+                self.current_row.set("done")
             self.current_row = row
-            row.set("a correr", f"{i:,} / {n:,}".replace(",", " "))
+            row.set("running", f"{i:,} / {n:,}".replace(",", " "))
 
     def on_finished(self, kind, rep, errs):
         self.busy(False)
         self.bar.setMaximum(1)
         self.bar.setValue(1)
         for _, r in self.step_rows:
-            if r.state.text() not in ("desligado",):
-                r.set("feito")
-        self.status.setText("Pré-visualização pronta — nada foi alterado." if kind == "preview" else "Feito.")
+            if r.current != "off":
+                r.set("done")
+        self.status.setText(t("status.preview_done") if kind == "preview" else t("status.done"))
         self.show_stats(rep)
         for k, v in sorted(rep.items(), key=lambda kv: -kv[1]):
-            self.log.appendPlainText(f"{v:>7}  {k}")
+            self.log.appendPlainText(f"{v:>7}  {report_label(k)}")
         if errs:
-            self.log.appendPlainText(f"Avisos ({len(errs)}):")
+            self.log.appendPlainText(t("log.warnings", n=len(errs)))
             for e in errs[:100]:
                 self.log.appendPlainText(f"   {e}")
         if kind == "run":
-            self.log.appendPlainText("No rekordbox: Ficheiro › Gerir faixas inexistentes › Auto Relocate; depois Recarregar tag.")
+            self.log.appendPlainText(t("log.rekordbox"))
 
     def on_failed(self, msg):
         self.busy(False)
         if self.current_row is not None:
-            self.current_row.set("erro", "parado")
-        self.status.setText("Parado.")
+            self.current_row.set("error")
+        self.status.setText(t("status.stopped"))
         self.log.appendPlainText(msg)
 
     def clear_stats(self):
@@ -420,28 +432,46 @@ class Window(QMainWindow):
             self.stats_grid.takeAt(0).widget().deleteLater()
 
     def show_stats(self, rep):
-        def total(*words):
-            return sum(v for k, v in rep.items() if any(w in k for w in words))
-        stats = [("faixas", rep.get("faixas")), ("movidas", total("movidas", "a mover")),
-                 ("repetidas", total("repetidas")), ("géneros online", total("online")),
-                 ("tags corrigidas", total("tag", "sites"))]
+        def total(*ids):
+            return sum(v for k, v in rep.items() if k.partition("|")[0] in ids)
+        stats = [("stat.tracks", rep.get("tracks")), ("stat.moved", total("moved", "to_move", "undo_returned")),
+                 ("stat.dups", total("dups_trashed", "dups_pending")), ("stat.online", total("online")),
+                 ("stat.tags", total("genre_tag_fixed", "genre_spam_cleared", "sites_cleaned"))]
         col = 0
         for label, v in stats:
             if not v:
                 continue
             box = QVBoxLayout()
-            val = QLabel(f"{v:,}".replace(",", " "), objectName="statValue")
-            box.addWidget(val)
-            box.addWidget(QLabel(label, objectName="statLabel"))
+            box.addWidget(QLabel(f"{v:,}".replace(",", " "), objectName="statValue"))
+            box.addWidget(QLabel(t(label), objectName="statLabel"))
             w = QWidget()
             w.setLayout(box)
             self.stats_grid.addWidget(w, 0, col)
             col += 1
 
 
+def first_run():
+    """Language + Terms. Returns False if the user refused. Also fixes the folder-name language on first use."""
+    set_lang(config.get("idioma") or system_lang())
+    if config.get("termos_aceites") == termos.VERSION:
+        return True
+    from .ajuda import TermsDialog
+    if TermsDialog().exec() != TermsDialog.Accepted:
+        return False
+    config.put("idioma", lang())
+    config.put("termos_aceites", termos.VERSION)
+    opts, keys = config.load()
+    if not config.get("opcoes"):  # brand-new install: folder names follow the chosen language
+        opts.folder_lang = lang()
+        config.save(opts, keys)
+    return True
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
+    if not first_run():
+        sys.exit(0)
     w = Window()
     w.show()
     sys.exit(app.exec())

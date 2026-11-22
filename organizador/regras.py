@@ -93,6 +93,12 @@ FAMILIES = {
 }
 FAMILY_OF = {g: fam for fam, subs in FAMILIES.items() for g in subs}
 
-# Sem Genero / Outros are split by tempo (folder name, upper bound exclusive)
-BPM_BUCKETS = [(115, "BPM menos de 115"), (122, "BPM 115-122"), (128, "BPM 122-128"), (135, "BPM 128-135"), (999, "BPM 135+")]
-BPM_UNKNOWN = "BPM desconhecido"
+# NO_GENRE / OTHER above are internal ids. On disk they get a name in the language chosen on first use
+# (fixed afterwards, so switching the UI language never renames folders).
+BPM_LIMITS = [115, 122, 128, 135, 999]  # upper bound, exclusive
+FOLDER_NAMES = {
+    "pt": {NO_GENRE: "Sem Genero", OTHER: "Outros",
+           "bpm": ["BPM menos de 115", "BPM 115-122", "BPM 122-128", "BPM 128-135", "BPM 135+"], "bpm_unknown": "BPM desconhecido"},
+    "en": {NO_GENRE: "No Genre", OTHER: "Other",
+           "bpm": ["BPM under 115", "BPM 115-122", "BPM 122-128", "BPM 128-135", "BPM 135+"], "bpm_unknown": "BPM unknown"},
+}

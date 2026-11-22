@@ -1,5 +1,5 @@
 """Tempo for tracks without a genre: tag BPM, else measured from the audio (needs the optional librosa)."""
-from .regras import BPM_BUCKETS, BPM_UNKNOWN
+from .regras import BPM_LIMITS, FOLDER_NAMES
 from .tags import tag_bpm
 
 try:
@@ -17,10 +17,10 @@ def fold(bpm):
     return bpm
 
 
-def bucket(bpm):
+def bucket(bpm, names=FOLDER_NAMES["pt"]):
     if not bpm:
-        return BPM_UNKNOWN
-    return next(name for top, name in BPM_BUCKETS if bpm < top)
+        return names["bpm_unknown"]
+    return names["bpm"][next(i for i, top in enumerate(BPM_LIMITS) if bpm < top)]
 
 
 def measure(path):

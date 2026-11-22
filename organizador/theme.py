@@ -39,6 +39,17 @@ QLineEdit {{
 }}
 QLineEdit:focus {{ border: 1px solid {C['secondary_hover']}; }}
 
+QComboBox {{
+    background: {C['muted']}; border: 1px solid {C['border']}; border-radius: 8px; padding: 6px 10px; min-width: 110px;
+}}
+QComboBox:focus {{ border: 1px solid {C['secondary_hover']}; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox QAbstractItemView {{ background: {C['card']}; border: 1px solid {C['border']}; selection-background-color: {C['secondary']}; }}
+QCheckBox {{ spacing: 10px; }}
+QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 5px; border: 1px solid {C['fg_muted']}; background: {C['muted']}; }}
+QCheckBox::indicator:checked {{ background: {C['accent']}; border: 1px solid {C['accent']}; }}
+QCheckBox:focus {{ color: {C['fg']}; }}
+
 QPushButton {{
     background: {C['muted']}; border: 1px solid {C['border']}; border-radius: 8px;
     padding: 9px 18px; min-height: 22px; font-weight: 600;

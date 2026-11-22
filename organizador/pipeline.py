@@ -19,7 +19,8 @@ from send2trash import send2trash
 
 from . import bpm as bpm_mod
 from .online import Lookup
-from .regras import FAMILY_OF, NO_GENRE, OTHER
+from .i18n import t
+from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (LIST_SEP, LOSSLESS, SPAM, clean_sites, duration, genre_from_folder, genre_of, is_audio,
                    normalize_genre, raw_genre, search_terms, track_key, write_genre)
 
@@ -42,6 +43,7 @@ class Options:
     clean_sites: bool = True
     bpm_folders: bool = True
     families: bool = True
+    folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
 
 
 class Cancelled(Exception):
@@ -68,11 +70,12 @@ class Organizer:
         self.opts = opts
         self.root = os.path.abspath(opts.root)
         if not os.path.isdir(self.root):
-            raise ValueError(f"Pasta nao existe: {self.root}")
+            raise ValueError(t("err.no_folder", root=self.root))
         self.keys = keys or {}
         self.progress = progress or (lambda step, i, n, msg="": None)
         self.cancel = cancel or threading.Event()
         self.data = data_dir_for(self.root)
+        self.names = FOLDER_NAMES.get(opts.folder_lang, FOLDER_NAMES["pt"])
         self.report = Counter()
         self.errors = []
         self._log = None
@@ -99,8 +102,13 @@ class Organizer:
         self._log.flush()
 
     def target_dir(self, genre):
+        if genre in (NO_GENRE, OTHER):
+            return os.path.join(self.root, self.names[genre])
         fam = FAMILY_OF.get(genre) if self.opts.families else None
         return os.path.join(self.root, fam, genre) if fam else os.path.join(self.root, genre)
+
+    def label(self, genre):
+        return self.names.get(genre, genre)
 
     def in_place(self, path, genre):
         target = os.path.normcase(self.target_dir(genre))
@@ -184,7 +192,7 @@ class Organizer:
         done = self._done_archives()
         seven = _find_7zip()
         for i, a in enumerate(archives, 1):
-            self._tick("Extrair", i, len(archives), os.path.basename(a))
+            self._tick("extract", i, len(archives), os.path.basename(a))
             out = os.path.join(self.root, INBOX, os.path.splitext(os.path.basename(a))[0].strip(" ."))
             try:
                 if a.lower().endswith(".zip"):
@@ -197,16 +205,16 @@ class Organizer:
                     if r.returncode != 0:
                         raise RuntimeError(r.stderr.strip()[:200] or f"7-Zip erro {r.returncode}")
                 else:
-                    raise RuntimeError("precisa do 7-Zip instalado para .rar/.7z (7-zip.org)")
+                    raise RuntimeError(t("err.need_7zip"))
             except Exception as e:
                 self.errors.append(f"{os.path.basename(a)}: {e}")
                 continue
             done.add(self._archive_id(a))
             with open(os.path.join(self.data, "extraidos.json"), "w", encoding="utf-8") as fh:
                 json.dump(sorted(done), fh, ensure_ascii=False)
-            self.report["compactados extraidos"] += 1
+            self.report["archives_extracted"] += 1
             if self.opts.delete_archives and self.trash(a):
-                self.report["compactados para a Reciclagem"] += 1
+                self.report["archives_trashed"] += 1
 
     def plan_genre(self, path):
         name = os.path.basename(path)
@@ -218,16 +226,16 @@ class Organizer:
     def step_organize(self):
         files = list(self.audio_files())
         for i, p in enumerate(files, 1):
-            self._tick("Organizar por genero", i, len(files), os.path.basename(p))
+            self._tick("organize", i, len(files), os.path.basename(p))
             g = self.plan_genre(p)
             if not self.in_place(p, g) and self.move(p, self.target_dir(g)):
-                self.report[f"movidas para {g}"] += 1
+                self.report[f"moved|{self.label(g)}"] += 1
         inbox = os.path.join(self.root, INBOX)
         if os.path.isdir(inbox) and not any(True for _ in self.audio_files(inbox)):
             for dp, _, fs in os.walk(inbox):  # covers, .nfo, .url... from the packs
                 for n in fs:
                     if self.trash(os.path.join(dp, n)):
-                        self.report["ficheiros que nao sao musica para a Reciclagem"] += 1
+                        self.report["junk_trashed"] += 1
         self.remove_empty_dirs()
 
     @staticmethod
@@ -242,35 +250,35 @@ class Organizer:
         with ThreadPoolExecutor(8) as ex:
             for i, (p, key, dur) in enumerate(ex.map(lambda p: (p, track_key(p), duration(p)), files), 1):
                 if i % 50 == 0 or i == len(files):
-                    self._tick("Procurar repetidas", i, len(files))
+                    self._tick("dedupe_scan", i, len(files))
                 if key:
                     groups[key].append((p, dur))
         dups = [sorted(v, key=lambda x: self._score(*x), reverse=True) for v in groups.values() if len(v) > 1]
         losers = [p for v in dups for p, _ in v[1:]]
         for i, p in enumerate(losers, 1):
-            self._tick("Remover repetidas", i, len(losers), os.path.basename(p))
+            self._tick("dedupe_remove", i, len(losers), os.path.basename(p))
             if self.trash(p):
-                self.report["repetidas para a Reciclagem"] += 1
+                self.report["dups_trashed"] += 1
 
     def step_online(self):
         look = Lookup(self.data, self.keys.get("discogs_token", ""), self.keys.get("lastfm_api_key", ""),
                       self.opts.musicbrainz, self.cancel)
         if not look.available:
-            self.errors.append("Procura online saltada: sem chaves do Discogs/Last.fm e MusicBrainz desligado.")
+            self.errors.append(t("err.online_skipped"))
             return
-        base = os.path.join(self.root, NO_GENRE)
+        base = self.target_dir(NO_GENRE)
         files = [p for p in self.audio_files(base) if self.overrides.get(os.path.basename(p)) != NO_GENRE] \
             if os.path.isdir(base) else []
         try:
             for i, p in enumerate(files, 1):
-                self._tick("Procurar genero online", i, len(files), os.path.basename(p))
+                self._tick("online", i, len(files), os.path.basename(p))
                 terms = search_terms(p)
                 g, src = look.genre(*terms) if terms else (None, None)
                 if g:
                     self.overrides[os.path.basename(p)] = g
                     if self.move(p, self.target_dir(g)):
                         self._write_log("genero", p, f"{g} ({src})")
-                        self.report[f"genero encontrado online ({g})"] += 1
+                        self.report[f"online|{g}"] += 1
                 if i % 25 == 0:
                     look.save()
                     self._save_overrides()
@@ -281,40 +289,40 @@ class Organizer:
     def step_bpm(self):
         files = []
         for top in (NO_GENRE, OTHER):
-            d = os.path.join(self.root, top)
+            d = self.target_dir(top)
             if os.path.isdir(d):
                 files += [os.path.join(d, n) for n in os.listdir(d) if is_audio(n)]  # only loose ones
         ex = ThreadPoolExecutor(4)
         try:
             for done, (p, b) in enumerate(zip(files, ex.map(bpm_mod.bpm_of, files)), 1):
-                self._tick("Separar por BPM", done, len(files), os.path.basename(p))
-                if self.move(p, os.path.join(os.path.dirname(p), bpm_mod.bucket(b))):
-                    self.report["separadas por BPM"] += 1
+                self._tick("bpm", done, len(files), os.path.basename(p))
+                if self.move(p, os.path.join(os.path.dirname(p), bpm_mod.bucket(b, self.names))):
+                    self.report["bpm_sorted"] += 1
         finally:
             ex.shutdown(wait=True, cancel_futures=True)  # on cancel: don't measure the rest
 
     def step_tags(self):
         files = list(self.audio_files())
         for i, p in enumerate(files, 1):
-            self._tick("Corrigir tags", i, len(files), os.path.basename(p))
+            self._tick("tags", i, len(files), os.path.basename(p))
             try:
                 if self.opts.write_tags:
                     self._fix_genre_tag(p)
                 if self.opts.clean_sites and clean_sites(p):
-                    self.report["faixas sem sites nas tags"] += 1
+                    self.report["sites_cleaned"] += 1
             except Exception as e:
                 self.errors.append(f"{os.path.basename(p)}: {e}")
 
     def _fix_genre_tag(self, p):
         raw = raw_genre(p)
         top = os.path.relpath(p, self.root).split(os.sep)[0]
-        if top in (NO_GENRE, OTHER):
+        if top in (self.names[NO_GENRE], self.names[OTHER]):
             if SPAM.search(raw):
                 write_genre(p, "")
-                self.report["generos com site apagados"] += 1
-            elif top == OTHER and LIST_SEP.search(raw):
+                self.report["genre_spam_cleared"] += 1
+            elif top == self.names[OTHER] and LIST_SEP.search(raw):
                 write_genre(p, LIST_SEP.split(raw)[0].strip())
-                self.report["generos corrigidos na tag"] += 1
+                self.report["genre_tag_fixed"] += 1
             return
         here = os.path.basename(os.path.dirname(p))
         if not self.in_place(p, here):
@@ -322,7 +330,7 @@ class Organizer:
         # keep a more specific tag that maps to this folder (e.g. "Afro House" inside House)
         if normalize_genre(raw) != here or LIST_SEP.search(raw) or SPAM.search(raw):
             write_genre(p, here)
-            self.report["generos corrigidos na tag"] += 1
+            self.report["genre_tag_fixed"] += 1
 
     # ---------- run ----------
 
@@ -343,21 +351,21 @@ class Organizer:
     def preview(self):
         """What a run would do, without touching anything."""
         rep = Counter()
-        rep["compactados por extrair"] = len(self.pending_archives())
+        rep["archives_pending"] = len(self.pending_archives())
         files = list(self.audio_files())
         groups = Counter()
         for i, p in enumerate(files, 1):
-            self._tick("Pre-visualizar", i, len(files), os.path.basename(p))
+            self._tick("preview", i, len(files), os.path.basename(p))
             g = self.plan_genre(p)
             if not self.in_place(p, g):
-                rep[f"a mover para {g}"] += 1
+                rep[f"to_move|{self.label(g)}"] += 1
             if self.opts.dedupe:
                 k = track_key(p)
                 if k:
                     groups[k] += 1
-        rep["faixas"] = len(files)
+        rep["tracks"] = len(files)
         if self.opts.dedupe:
-            rep["repetidas a remover"] = sum(c - 1 for c in groups.values() if c > 1)
+            rep["dups_pending"] = sum(c - 1 for c in groups.values() if c > 1)
         return rep
 
 
@@ -367,21 +375,21 @@ def undo_last(root, progress=None):
     runs_dir = os.path.join(data_dir_for(root), "execucoes")
     runs = sorted(f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv"))
     if not runs:
-        return Counter({"nada para desfazer": 1}), []
+        return Counter({"undo_nothing": 1}), []
     path = os.path.join(runs_dir, runs[-1])
     with open(path, encoding="utf-8") as fh:
         rows = [r for r in csv.reader(fh) if r]
     rep, errors = Counter(), []
     moves = [r for r in rows if r[0] == "mover"]
     for i, (_, src, dst) in enumerate(reversed(moves), 1):
-        progress("Desfazer", i, len(moves), os.path.basename(src))
+        progress("undo", i, len(moves), os.path.basename(src))
         if os.path.exists(dst) and not os.path.exists(src):
             try:
                 os.makedirs(os.path.dirname(src), exist_ok=True)
                 shutil.move(dst, src)
-                rep["faixas devolvidas"] += 1
+                rep["undo_returned"] += 1
             except OSError as e:
                 errors.append(f"{dst}: {e}")
-    rep["na Reciclagem (restaurar pelo Windows)"] = sum(1 for r in rows if r[0] == "reciclagem")
+    rep["undo_in_trash"] = sum(1 for r in rows if r[0] == "reciclagem")
     os.replace(path, path[:-4] + ".desfeito.csv")
     return rep, errors

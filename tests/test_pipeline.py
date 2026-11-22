@@ -60,7 +60,7 @@ def test_full_run_and_undo():
 
     opts = pl.Options(root=root, online=False, bpm_folders=True)
     org = pl.Organizer(opts)
-    assert org.preview()["compactados por extrair"] == 1
+    assert org.preview()["archives_pending"] == 1
     rep, errs = org.run()
     assert not errs, errs
 
@@ -77,10 +77,10 @@ def test_full_run_and_undo():
     assert not os.path.exists(os.path.join(root, pl.INBOX)) and not os.path.exists(os.path.join(root, "solta"))
 
     rep2, _ = pl.Organizer(opts).run()  # second run: nothing to move
-    assert not any(k.startswith("movidas") for k in rep2), rep2
+    assert not any(k.startswith("moved") for k in rep2), rep2
 
     rep, errs = pl.undo_last(root)
-    assert rep["faixas devolvidas"] >= 1, rep
+    assert rep["undo_returned"] >= 1, rep
     rep, errs = pl.undo_last(root)  # undoes the first run (the second moved nothing so it has no log)
     assert os.path.exists(os.path.join(root, "B - Spam.wav"))
     assert genre_of(os.path.join(root, "C - Afro.wav")) == "House"
