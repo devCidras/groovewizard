@@ -143,7 +143,6 @@ class Organizer:
         self._log = None
         self.run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}-{time.time_ns() % 10**9}"
         self.qdir = os.path.join(self.root, QUARANTINE, self.run_id)
-        purge_quarantine(self.root, QUARANTINE_DAYS)
         self._overrides_path = os.path.join(self.data, "generos_corrigidos.json")
         try:
             with open(self._overrides_path, encoding="utf-8") as fh:
@@ -521,6 +520,8 @@ class Organizer:
 
     def run(self):
         with library_lock(self.root):
+            purge_quarantine(self.root, QUARANTINE_DAYS)  # here, not in __init__: Preview must not change anything
+            prune_logs(self.data)
             return self._run()
 
     def _run(self):
@@ -594,6 +595,19 @@ def purge_quarantine(root, older_than_days=None):
     return n
 
 
+KEEP_LOGS = 30
+
+
+def prune_logs(data_dir):
+    d = os.path.join(data_dir, "execucoes")
+    logs = sorted(f for f in os.listdir(d) if f.endswith(".csv"))
+    for f in logs[:-KEEP_LOGS]:
+        try:
+            os.remove(os.path.join(d, f))
+        except OSError:
+            pass
+
+
 def _remove_empty(top):
     for dp, _, _ in sorted(os.walk(top), key=lambda w: -len(w[0])):
         try:
@@ -602,13 +616,14 @@ def _remove_empty(top):
             pass
 
 
-def _move_back(src, dst, errors):
-    """dst -> src; True when moved."""
+def _move_back(src, dst, errors, retry):
+    """dst -> src; True when moved. retry: set to True when trying again later could succeed."""
     if not os.path.exists(dst):
         errors.append(t("err.undo_missing", path=dst))
         return False
     if os.path.exists(src):
         errors.append(t("err.undo_conflict", path=src))
+        retry[0] = True
         return False
     try:
         os.makedirs(os.path.dirname(src), exist_ok=True)
@@ -616,6 +631,7 @@ def _move_back(src, dst, errors):
         return True
     except OSError as e:
         errors.append(f"{dst}: {e}")
+        retry[0] = True  # e.g. file open in rekordbox
         return False
 
 
@@ -634,7 +650,7 @@ def _undo_last(root, progress, cancel):
     path = os.path.join(runs_dir, runs[-1])
     with open(path, encoding="utf-8") as fh:
         rows = [r for r in csv.reader(fh) if r]
-    rep, errors = Counter(), []
+    rep, errors, retry = Counter(), [], [False]
     failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
     todo = [r for r in rows if r[0] in ("tags", "quarentena", "mover") and len(r) > 2 and (r[1], r[2]) not in failed]
     for i, (kind, a, b) in enumerate(reversed([r[:3] for r in todo]), 1):  # newest first: replays the chain
@@ -648,7 +664,7 @@ def _undo_last(root, progress, cancel):
                     rep["undo_tags"] += 1
                 except Exception as e:
                     errors.append(f"{a}: {e}")
-        elif _move_back(a, b, errors):
+        elif _move_back(a, b, errors, retry):
             rep["undo_from_quarantine" if kind == "quarentena" else "undo_returned"] += 1
     found = [os.path.basename(r[1]) for r in rows if r[0] == "genero" and len(r) > 1]
     if found:  # otherwise the next run would move them out again
@@ -665,7 +681,7 @@ def _undo_last(root, progress, cancel):
     legacy = sum(1 for r in rows if r[0] == "reciclagem")  # runs before the quarantine existed
     if legacy:
         rep["undo_in_trash"] = legacy
-    if not errors:  # keep it pending otherwise, so it can be retried
+    if not retry[0]:  # pending only when retrying can help (conflict, file in use); missing files never come back
         os.replace(path, path[:-4] + ".desfeito.csv")
         _remove_empty(os.path.join(root, QUARANTINE))  # this run's now-empty quarantine folders
     return rep, errors

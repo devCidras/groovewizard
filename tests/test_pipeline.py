@@ -82,6 +82,7 @@ def test_full_run_and_undo():
     opts = pl.Options(root=root, online=False, bpm_folders=True)
     org = pl.Organizer(opts)
     assert org.preview()["archives_pending"] == 1
+    assert not os.path.exists(os.path.join(root, pl.QUARANTINE)) and os.path.exists(os.path.join(root, "solta")), "preview changed files"
     rep, errs = org.run()
     assert os.path.exists(broken), "unreadable file must stay where it is"
     errs = [e for e in errs if "broken.mp3" not in e]
