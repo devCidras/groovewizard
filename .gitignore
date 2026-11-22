@@ -1,0 +1,11 @@
+# chaves de API: nunca no repositorio
+chaves.json
+*.key
+# gerado
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec.bak
+*.log
+.venv/
