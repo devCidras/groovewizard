@@ -98,17 +98,30 @@ def test_full_run_and_undo():
     rep2, _ = pl.Organizer(opts).run()  # second run: nothing to move
     assert not any(k.startswith("moved") for k in rep2), rep2
 
-    rep, errs = pl.undo_last(root)
-    assert rep["undo_returned"] >= 1, rep
-    rep, errs = pl.undo_last(root)  # undoes the first run (the second moved nothing so it has no log)
-    assert os.path.exists(os.path.join(root, "B - Spam.wav"))
+    assert os.path.isdir(os.path.join(root, pl.QUARANTINE))  # the duplicate is kept there, not deleted
+
+    rep, errs = pl.undo_last(root)  # the second run changed nothing, so this undoes the first
+    assert not errs, errs
+    assert rep["undo_returned"] >= 1 and rep["undo_from_quarantine"] >= 1 and rep["undo_tags"] >= 1, rep
+    assert os.path.exists(os.path.join(root, "solta", "A - Groove (Original Mix).wav"))  # duplicate is back
+    b = os.path.join(root, "B - Spam.wav")
+    assert raw_genre(b) == "https://djsoundtop.com" and "djsoundtop" in str(WAVE(b).tags.get("TALB"))  # tags restored
     assert genre_of(os.path.join(root, "C - Afro.wav")) == "House"
+    assert not os.path.exists(os.path.join(root, pl.QUARANTINE))
+    assert pl.undo_last(root)[0]["undo_nothing"] == 1
+
+
+def test_versions_option():
+    assert title_key("Song (Radio Edit)") == title_key("Song (Extended Mix)")
+    assert title_key("Song (Radio Edit)", False) != title_key("Song (Extended Mix)", False)
+    assert title_key("Song (Original Mix)", False) == title_key("Song (Extended Mix)", False)
 
 
 if __name__ == "__main__":
     try:
         test_rules()
         test_guards()
+        test_versions_option()
         test_full_run_and_undo()
         print("ok")
     finally:

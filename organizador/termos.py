@@ -1,15 +1,15 @@
 """Terms and Conditions shown in the installer and on first run. Bump VERSION when the text changes (asks again)."""
 
-VERSION = "2"
+VERSION = "3"
 
 TERMS = {
     "pt": """TERMOS E CONDIÇÕES DE UTILIZAÇÃO — Cratekeeper
 
 1. O que o programa faz
-O Cratekeeper move, renomeia e altera as etiquetas (tags) de ficheiros de áudio na pasta que escolheres. Pode extrair ficheiros compactados e enviar ficheiros (repetidas, compactados, ficheiros que não são música) para a Reciclagem do Windows.
+O Cratekeeper move, renomeia e altera as etiquetas (tags) de ficheiros de áudio na pasta que escolheres. Pode extrair ficheiros compactados e enviar ficheiros (repetidas, compactados, ficheiros que não são música) para uma pasta de quarentena dentro da biblioteca, onde ficam 30 dias antes de irem para a Reciclagem do Windows.
 
 2. Responsabilidade e cópias de segurança
-Usas o programa por tua conta e risco. Recomendamos que faças uma cópia de segurança das tuas músicas e da biblioteca do teu software de DJ (rekordbox, Serato, etc.) antes de usar. O programa regista os ficheiros que move para poderes desfazer a última execução, mas não garante a recuperação de todas as alterações (por exemplo, alterações às tags).
+Usas o programa por tua conta e risco. Recomendamos que faças uma cópia de segurança das tuas músicas e da biblioteca do teu software de DJ (rekordbox, Serato, etc.) antes de usar. O programa regista as alterações (ficheiros movidos, removidos e tags originais) para poderes desfazer a última execução, mas não garante a recuperação de todas as alterações (por exemplo, depois de esvaziares a quarentena).
 
 3. Sem garantia
 O programa é fornecido "tal como está", sem garantias de qualquer tipo, nos termos da licença MIT. Os autores não são responsáveis por perda de dados, de cues, de playlists, de análises ou por qualquer outro dano resultante da utilização.
@@ -34,10 +34,10 @@ Ao aceitar, confirmas que leste e concordas com estes termos.
     "en": """TERMS AND CONDITIONS OF USE — Cratekeeper
 
 1. What the program does
-Cratekeeper moves, renames and edits the tags of audio files in the folder you choose. It can extract archives and send files (duplicates, archives, non-music files) to the Windows Recycle Bin.
+Cratekeeper moves, renames and edits the tags of audio files in the folder you choose. It can extract archives and send files (duplicates, archives, non-music files) to a quarantine folder inside the library, kept 30 days before going to the Windows Recycle Bin.
 
 2. Responsibility and backups
-You use the program at your own risk. We recommend backing up your music and your DJ software library (rekordbox, Serato, etc.) before using it. The program logs the files it moves so you can undo the last run, but it does not guarantee that every change (for example, tag edits) can be reverted.
+You use the program at your own risk. We recommend backing up your music and your DJ software library (rekordbox, Serato, etc.) before using it. The program logs its changes (moved and removed files, original tags) so you can undo the last run, but it does not guarantee that every change can be reverted (for example, after the quarantine is emptied).
 
 3. No warranty
 The program is provided "as is", without warranty of any kind, under the MIT license. The authors are not liable for loss of data, cues, playlists, analysis or any other damage arising from its use.

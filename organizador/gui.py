@@ -12,13 +12,13 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDi
 
 from . import __version__, config, termos
 from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
-from .pipeline import Cancelled, Options, Organizer, too_broad, undo_last
+from .pipeline import Cancelled, Options, Organizer, purge_quarantine, too_broad, undo_last
 from .theme import C, QSS
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
-EXTRA_OPTIONS = ["clean_sites", "families", "musicbrainz", "delete_archives"]
+EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "musicbrainz", "delete_archives"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper.png")
 
 
@@ -129,6 +129,8 @@ class Worker(QObject):
         try:
             if self.kind == "undo":
                 rep, errs = undo_last(self.opts.root, emit, self.cancel)
+            elif self.kind == "purge":
+                rep, errs = {"purged": purge_quarantine(self.opts.root)}, []
             else:
                 org = Organizer(self.opts, self.keys, emit, self.cancel)
                 rep, errs = (org.preview(), []) if self.kind == "preview" else org.run()
@@ -246,8 +248,14 @@ class Window(QMainWindow):
         for b in (self.btn_run, self.btn_preview, self.btn_cancel):
             btns.addWidget(b)
         btns.addStretch()
-        btns.addWidget(self.btn_undo)
         lay.addLayout(btns)
+        self.btn_purge = QPushButton(t("btn.purge"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.purge_tip"))
+        self.btn_purge.clicked.connect(self.purge)
+        extra = QHBoxLayout()  # secondary actions on their own row: never squeezed by the main buttons
+        extra.addStretch()
+        extra.addWidget(self.btn_purge)
+        extra.addWidget(self.btn_undo)
+        lay.addLayout(extra)
         self.bar = QProgressBar(textVisible=False)
         self.status = QLabel(t("status.ready"), objectName="hint")
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -263,6 +271,7 @@ class Window(QMainWindow):
             self.step_rows.append((field, r))
             for i in ids:
                 self.rows[i] = r
+        c.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)  # the log shrinks, the step list never does
         right.addWidget(c)
 
         c, lay = card(t("card.summary"))
@@ -270,7 +279,7 @@ class Window(QMainWindow):
         self.stats_grid.setHorizontalSpacing(24)
         lay.addLayout(self.stats_grid)
         self.log = QPlainTextEdit(readOnly=True, placeholderText=t("log.placeholder"))
-        self.log.setMinimumHeight(140)
+        self.log.setMinimumHeight(90)
         lay.addWidget(self.log, 1)
         right.addWidget(c, 1)
         cols.addLayout(right, 6)
@@ -343,7 +352,7 @@ class Window(QMainWindow):
         return opts, keys
 
     def busy(self, on):
-        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.folder, self.lang_combo, *self.toggles.values()):
+        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.folder, self.lang_combo, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
 
@@ -351,7 +360,7 @@ class Window(QMainWindow):
         for field, r in self.step_rows:
             if kind == "preview":
                 on = field in ("_organize", "extract", "dedupe")
-            elif kind == "undo":
+            elif kind in ("undo", "purge"):
                 on = False
             elif field == "write_tags":
                 on = opts.write_tags or opts.clean_sites
@@ -399,6 +408,11 @@ class Window(QMainWindow):
                 self.thread.finished.connect(self.close)
             return
         event.accept()
+
+    def purge(self):
+        opts, keys = self.current()
+        if QMessageBox.question(self, t("btn.purge"), t("msg.purge_confirm")) == QMessageBox.Yes:
+            self.start("purge", opts, keys)
 
     def undo(self):
         opts, keys = self.current()
@@ -453,7 +467,7 @@ class Window(QMainWindow):
     def show_stats(self, rep):
         def total(*ids):
             return sum(v for k, v in rep.items() if k.partition("|")[0] in ids)
-        stats = [("stat.tracks", rep.get("tracks")), ("stat.moved", total("moved", "to_move", "undo_returned")),
+        stats = [("stat.tracks", rep.get("tracks")), ("stat.moved", total("moved", "to_move", "undo_returned", "undo_from_quarantine")),
                  ("stat.dups", total("dups_trashed", "dups_pending")), ("stat.online", total("online")),
                  ("stat.tags", total("genre_tag_fixed", "genre_spam_cleared", "sites_cleaned"))]
         col = 0

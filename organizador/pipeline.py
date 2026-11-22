@@ -1,8 +1,11 @@
 """The organizer: extract packs, sort by genre, drop duplicates, look up missing genres, tidy tags.
 
-Every move is logged so the last run can be undone. Deleted files go to the Recycle Bin, never straight away.
+Every change is logged before it happens so the last run can be undone: moves, tag edits (original tags are
+saved) and removals. Removed files go to a quarantine folder inside the library (same drive, instant), kept
+30 days, then sent to the Recycle Bin. Nothing is ever deleted outright.
 """
 import csv
+import ctypes
 import hashlib
 import json
 import os
@@ -22,8 +25,8 @@ from . import bpm as bpm_mod
 from .online import Lookup
 from .i18n import t
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
-from .tags import (LIST_SEP, LOSSLESS, SPAM, clean_sites, duration, genre_from_folder, genre_of, is_audio,
-                   normalize_genre, raw_genre, search_terms, track_key, write_genre)
+from .tags import (LIST_SEP, LOSSLESS, SPAM, clean_sites, duration, fix_tags, genre_from_folder, genre_of, is_audio,
+                   normalize_genre, raw_genre, restore, search_terms, snapshot, track_key)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Cratekeeper")
 _OLD_DIR = os.path.join(os.path.dirname(APP_DIR), "OrganizadorMusica")  # name before v0.2
@@ -38,6 +41,13 @@ JUNK_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".txt", ".nfo", ".
             ".sfv", ".md5", ".cue", ".log", ".pdf", ".db", ".ini", ".ds_store"}
 SKIP_DIRS = {"downloading", "incomplete"}  # transfers still in progress (Soulseek / Nicotine+)
 INBOX = "_entrada"  # where packs are extracted before sorting
+QUARANTINE = "_quarentena"  # removed files, one subfolder per run
+QUARANTINE_DAYS = 30
+# extraction guards (zip bombs, full disks)
+MAX_MEMBERS = 100_000
+MAX_RATIO = 200
+FREE_MARGIN = 1 << 30  # keep 1 GB free
+csv.field_size_limit(1 << 30)  # tag snapshots are long
 SEVEN_ZIP = [r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe", "7z"]
 
 
@@ -54,6 +64,7 @@ class Options:
     bpm_folders: bool = True
     families: bool = True
     folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
+    merge_versions: bool = True  # Radio Edit / Club Mix count as the same song as the Extended Mix
 
 
 class Cancelled(Exception):
@@ -104,6 +115,9 @@ class Organizer:
         self.report = Counter()
         self.errors = []
         self._log = None
+        self.run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}-{time.time_ns() % 10**9}"
+        self.qdir = os.path.join(self.root, QUARANTINE, self.run_id)
+        purge_quarantine(self.root, QUARANTINE_DAYS)
         self._overrides_path = os.path.join(self.data, "generos_corrigidos.json")
         try:
             with open(self._overrides_path, encoding="utf-8") as fh:
@@ -120,7 +134,7 @@ class Organizer:
 
     def _write_log(self, *row):
         if self._log is None:
-            path = os.path.join(self.data, "execucoes", time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}-{time.time_ns() % 10**9}.csv")
+            path = os.path.join(self.data, "execucoes", self.run_id + ".csv")
             self._log = open(path, "x", newline="", encoding="utf-8")
             self._logw = csv.writer(self._log)
         self._logw.writerow(row)
@@ -163,14 +177,27 @@ class Organizer:
         return dst
 
     def trash(self, path):
-        self._write_log("reciclagem", path, "")
+        """Into this run's quarantine folder (Undo brings it back). Same drive: a rename, no copy."""
+        rel = os.path.relpath(path, self.root)
+        dst_dir = os.path.dirname(os.path.join(self.qdir, rel))
+        if not os.path.isdir(os.path.join(self.root, QUARANTINE)):
+            os.makedirs(os.path.join(self.root, QUARANTINE), exist_ok=True)
+            _hide(os.path.join(self.root, QUARANTINE))  # not shown in Explorer / shares that skip hidden
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, os.path.basename(path))
+        self._write_log("quarentena", path, dst)
         try:
-            send2trash(path)
-        except Exception as e:
-            self._write_log("falhou", path, "")
+            os.replace(path, dst)
+        except OSError as e:
+            self._write_log("falhou", path, dst)
             self.errors.append(f"{path}: {e}")
             return False
         return True
+
+    def _edit_tags(self, p, genre=None, clean=False):
+        """Original tags go to the run log first, then one save. -> (genre_changed, site_fields_changed)."""
+        self._write_log("tags", p, snapshot(p))
+        return fix_tags(p, genre=genre, clean=clean)
 
     def audio_files(self, base=None):
         base = base or self.root
@@ -206,7 +233,7 @@ class Organizer:
         done = self._done_archives()
         out = []
         for dp, dirs, files in os.walk(self.root):
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]  # includes _entrada: archives inside packs
+            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not (dp == self.root and d == QUARANTINE)]  # _entrada included: packs inside packs
             for n in files:
                 p = os.path.join(dp, n)
                 aid = self._archive_id(p) if os.path.splitext(n)[1].lower() in ARCHIVES else None
@@ -251,17 +278,16 @@ class Organizer:
                 out, k = os.path.join(os.path.dirname(a) if inside else inbox, f"{stem} ({k})"), k + 1
             try:
                 if a.lower().endswith(".zip"):
-                    with zipfile.ZipFile(a) as z:
-                        z.extractall(out)  # extractall drops absolute paths and '..'
+                    self._unzip(a, out)
                 elif seven:
-                    r = subprocess.run([seven, "x", a, f"-o{out}", "-aos", "-y", "-bso0", "-bsp0"],
-                                       capture_output=True, text=True, errors="replace",
-                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-                    if r.returncode != 0:
-                        raise RuntimeError(r.stderr.strip()[:200] or f"7-Zip erro {r.returncode}")
+                    self._un7z(seven, a, out)
                 else:
                     raise RuntimeError(t("err.need_7zip"))
+            except Cancelled:
+                shutil.rmtree(out, ignore_errors=True)  # our own fresh folder: half an extraction is useless
+                raise
             except Exception as e:
+                shutil.rmtree(out, ignore_errors=True)
                 self.errors.append(f"{os.path.basename(a)}: {e}")
                 continue
             done.add(self._archive_id(a) or a)
@@ -270,6 +296,44 @@ class Organizer:
             self.report["archives_extracted"] += 1
             if self.opts.delete_archives and self.trash(a):
                 self.report["archives_trashed"] += 1
+
+    def _check_archive(self, total, count, packed):
+        if count > MAX_MEMBERS:
+            raise RuntimeError(t("err.archive_many", n=count))
+        if packed and total > 2 * (1 << 30) and total / packed > MAX_RATIO:
+            raise RuntimeError(t("err.archive_bomb"))
+        if total > shutil.disk_usage(self.root).free - FREE_MARGIN:
+            raise RuntimeError(t("err.no_space", gb=round(total / (1 << 30), 1)))
+
+    def _unzip(self, a, out):
+        with zipfile.ZipFile(a) as z:
+            infos = z.infolist()
+            self._check_archive(sum(i.file_size for i in infos), len(infos), sum(i.compress_size for i in infos))
+            for info in infos:
+                if self.cancel.is_set():
+                    raise Cancelled()
+                z.extract(info, out)  # drops absolute paths and '..'
+
+    def _un7z(self, seven, a, out):
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        listing = subprocess.run([seven, "l", "-slt", "-ba", a], capture_output=True, text=True, errors="replace",
+                                 creationflags=flags)
+        sizes = [int(m) for m in re.findall(r"^Size = (\d+)$", listing.stdout, re.M)]
+        packed = sum(int(m) for m in re.findall(r"^Packed Size = (\d+)$", listing.stdout, re.M))
+        self._check_archive(sum(sizes), len(sizes), packed)
+        proc = subprocess.Popen([seven, "x", a, f"-o{out}", "-aos", "-y", "-bso0", "-bsp0", "-snl-"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=flags)
+        while True:
+            try:
+                err = proc.communicate(timeout=0.5)[1]
+                break
+            except subprocess.TimeoutExpired:
+                if self.cancel.is_set():
+                    proc.kill()
+                    proc.communicate()
+                    raise Cancelled()
+        if proc.returncode != 0:
+            raise RuntimeError(err.decode(errors="replace").strip()[:200] or f"7-Zip erro {proc.returncode}")
 
     def plan_genre(self, path):
         name = os.path.basename(path)
@@ -314,7 +378,8 @@ class Organizer:
         groups = defaultdict(list)
         ex = ThreadPoolExecutor(8)
         try:
-            for i, (p, key, dur) in enumerate(ex.map(lambda p: (p, track_key(p), duration(p)), files), 1):
+            mv = self.opts.merge_versions
+            for i, (p, key, dur) in enumerate(ex.map(lambda p: (p, track_key(p, mv), duration(p)), files), 1):
                 if i % 50 == 0 or i == len(files):
                     self._tick("dedupe_scan", i, len(files))
                 if key:
@@ -350,7 +415,7 @@ class Organizer:
                         self.report[f"online|{g}"] += 1
                         if self.opts.write_tags:
                             try:
-                                write_genre(dst, g)  # the tag survives renames, the override may not
+                                self._edit_tags(dst, genre=g)  # the tag survives renames, the override may not
                             except Exception as e:
                                 self.errors.append(f"{os.path.basename(dst)}: {e}")
                 if i % 25 == 0:
@@ -380,31 +445,35 @@ class Organizer:
         for i, p in enumerate(files, 1):
             self._tick("tags", i, len(files), os.path.basename(p))
             try:
-                if self.opts.write_tags:
-                    self._fix_genre_tag(p)
-                if self.opts.clean_sites and clean_sites(p):
+                genre, key = self._genre_decision(p) if self.opts.write_tags else (None, None)
+                clean = bool(self.opts.clean_sites and clean_sites(p, write=False))
+                if genre is None and not clean:
+                    continue
+                g, s = self._edit_tags(p, genre=genre, clean=clean)
+                if g:
+                    self.report[key] += 1
+                if s:
                     self.report["sites_cleaned"] += 1
             except Exception as e:
                 self.errors.append(f"{os.path.basename(p)}: {e}")
 
-    def _fix_genre_tag(self, p):
+    def _genre_decision(self, p):
+        """-> (new genre or None to leave it, report key)."""
         raw = raw_genre(p)
         top = os.path.relpath(p, self.root).split(os.sep)[0]
         if top in (self.names[NO_GENRE], self.names[OTHER]):
             if SPAM.search(raw):
-                write_genre(p, "")
-                self.report["genre_spam_cleared"] += 1
-            elif top == self.names[OTHER] and LIST_SEP.search(raw):
-                write_genre(p, LIST_SEP.split(raw)[0].strip())
-                self.report["genre_tag_fixed"] += 1
-            return
+                return "", "genre_spam_cleared"
+            if top == self.names[OTHER] and LIST_SEP.search(raw):
+                return LIST_SEP.split(raw)[0].strip(), "genre_tag_fixed"
+            return None, None
         here = os.path.basename(os.path.dirname(p))
         if not self.in_place(p, here):
-            return  # not inside a genre folder
+            return None, None  # not inside a genre folder
         # keep a more specific tag that maps to this folder (e.g. "Afro House" inside House)
         if normalize_genre(raw) != here or LIST_SEP.search(raw) or SPAM.search(raw):
-            write_genre(p, here)
-            self.report["genre_tag_fixed"] += 1
+            return here, "genre_tag_fixed"
+        return None, None
 
     # ---------- run ----------
 
@@ -434,7 +503,7 @@ class Organizer:
             if not self.in_place(p, g):
                 rep[f"to_move|{self.label(g)}"] += 1
             if self.opts.dedupe:
-                k = track_key(p)
+                k = track_key(p, self.opts.merge_versions)
                 if k:
                     groups[k] += 1
         rep["tracks"] = len(files)
@@ -443,8 +512,63 @@ class Organizer:
         return rep
 
 
+def _hide(path):
+    try:
+        ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x2)  # FILE_ATTRIBUTE_HIDDEN
+    except Exception:
+        pass
+
+
+def purge_quarantine(root, older_than_days=None):
+    """Quarantined runs -> Recycle Bin (all of them, or only older ones). Returns how many runs."""
+    qroot = os.path.join(root, QUARANTINE)
+    if not os.path.isdir(qroot):
+        return 0
+    limit = time.time() - older_than_days * 86400 if older_than_days is not None else None
+    n = 0
+    for d in os.listdir(qroot):
+        p = os.path.join(qroot, d)
+        try:
+            if limit is None or os.path.getmtime(p) < limit:
+                send2trash(p)
+                n += 1
+        except OSError:
+            pass
+    try:
+        if not os.listdir(qroot):
+            os.rmdir(qroot)
+    except OSError:
+        pass
+    return n
+
+
+def _remove_empty(top):
+    for dp, _, _ in sorted(os.walk(top), key=lambda w: -len(w[0])):
+        try:
+            os.rmdir(dp)  # only succeeds when empty
+        except OSError:
+            pass
+
+
+def _move_back(src, dst, errors):
+    """dst -> src; True when moved."""
+    if not os.path.exists(dst):
+        errors.append(t("err.undo_missing", path=dst))
+        return False
+    if os.path.exists(src):
+        errors.append(t("err.undo_conflict", path=src))
+        return False
+    try:
+        os.makedirs(os.path.dirname(src), exist_ok=True)
+        shutil.move(dst, src)
+        return True
+    except OSError as e:
+        errors.append(f"{dst}: {e}")
+        return False
+
+
 def undo_last(root, progress=None, cancel=None):
-    """Moves files of the last run back. Files sent to the Recycle Bin stay there (restore them from Windows)."""
+    """Undoes the last run: tags back to the originals, removed files out of quarantine, moves reversed."""
     progress = progress or (lambda *a: None)
     runs_dir = os.path.join(data_dir_for(root), "execucoes")
     runs = sorted(f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv"))
@@ -455,25 +579,20 @@ def undo_last(root, progress=None, cancel=None):
         rows = [r for r in csv.reader(fh) if r]
     rep, errors = Counter(), []
     failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
-    trashed = {r[1] for r in rows if r[0] == "reciclagem"} - {s for s, _ in failed}
-    moves = [r for r in rows if r[0] == "mover" and (r[1], r[2]) not in failed]
-    for i, (_, src, dst) in enumerate(reversed(moves), 1):
+    todo = [r for r in rows if r[0] in ("tags", "quarentena", "mover") and len(r) > 2 and (r[1], r[2]) not in failed]
+    for i, (kind, a, b) in enumerate(reversed([r[:3] for r in todo]), 1):  # newest first: replays the chain
         if cancel is not None and cancel.is_set():
             raise Cancelled()
-        progress("undo", i, len(moves), os.path.basename(src))
-        if not os.path.exists(dst):
-            if dst not in trashed:  # removed as a duplicate later in the same run: it is in the Recycle Bin
-                errors.append(t("err.undo_missing", path=dst))
-            continue
-        if os.path.exists(src):
-            errors.append(t("err.undo_conflict", path=src))
-            continue
-        try:
-            os.makedirs(os.path.dirname(src), exist_ok=True)
-            shutil.move(dst, src)
-            rep["undo_returned"] += 1
-        except OSError as e:
-            errors.append(f"{dst}: {e}")
+        progress("undo", i, len(todo), os.path.basename(a))
+        if kind == "tags":
+            if os.path.exists(a):
+                try:
+                    restore(a, b)
+                    rep["undo_tags"] += 1
+                except Exception as e:
+                    errors.append(f"{a}: {e}")
+        elif _move_back(a, b, errors):
+            rep["undo_from_quarantine" if kind == "quarentena" else "undo_returned"] += 1
     found = [os.path.basename(r[1]) for r in rows if r[0] == "genero" and len(r) > 1]
     if found:  # otherwise the next run would move them out again
         opath = os.path.join(data_dir_for(root), "generos_corrigidos.json")
@@ -486,7 +605,10 @@ def undo_last(root, progress=None, cancel=None):
                 json.dump(ov, fh, ensure_ascii=False)
         except (OSError, json.JSONDecodeError):
             pass
-    rep["undo_in_trash"] = len(trashed)
+    legacy = sum(1 for r in rows if r[0] == "reciclagem")  # runs before the quarantine existed
+    if legacy:
+        rep["undo_in_trash"] = legacy
     if not errors:  # keep it pending otherwise, so it can be retried
         os.replace(path, path[:-4] + ".desfeito.csv")
+        _remove_empty(os.path.join(root, QUARANTINE))  # this run's now-empty quarantine folders
     return rep, errors

@@ -47,14 +47,16 @@ HELP = {
   <li><b>Géneros:</b> cada faixa vai para a pasta do seu género (ex.: <code>House\\Tech House</code>).
       Sem tag, usa o nome do pack; sem nada, fica em <code>Sem Genero</code>.</li>
   <li><b>Repetidas:</b> fica a <b>Extended Mix</b>; se não houver, a mais longa; depois a lossless.
-      As outras vão para a <b>Reciclagem</b> do Windows.</li>
+      As outras vão para a <b>quarentena</b> (pasta escondida <code>_quarentena</code>), onde ficam 30 dias antes de irem para a Reciclagem.</li>
   <li><b>Outros:</b> géneros com poucas faixas (Pop, Hardstyle, Rock…). O género verdadeiro fica na tag.</li>
   <li><b>BPM:</b> <code>Sem Genero</code> e <code>Outros</code> ficam divididos em pastas de BPM.</li>
   <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.</li>
 </ul>
 <h3>Enganei-me, e agora?</h3>
-<p><b>Desfazer última</b> devolve os ficheiros que foram movidos na última execução.
-   O que foi para a Reciclagem restauras pelo Windows (Reciclagem › Restaurar).</p>
+<p><b>Desfazer última</b> anula a última execução por completo: devolve os ficheiros ao sítio onde estavam,
+   tira da quarentena as repetidas e o lixo removidos, e repõe as tags originais (género, álbum, título…).<br>
+   <b>Esvaziar quarentena</b> envia já para a Reciclagem o que está em quarentena — a partir daí o Desfazer
+   já não recupera esses ficheiros.</p>
 <h3>Onde ficam os dados</h3>
 <p class="muted">Definições e chaves: <code>%APPDATA%\\Cratekeeper\\config.json</code> (só neste PC).<br>
    Caches e registos: <code>%APPDATA%\\Cratekeeper\\bibliotecas</code> — fora da pasta das músicas,
@@ -90,14 +92,16 @@ HELP = {
   <li><b>Genres:</b> each track goes to its genre folder (e.g. <code>House\\Tech House</code>).
       Untagged: by pack name; otherwise it goes to <code>No Genre</code>.</li>
   <li><b>Duplicates:</b> the <b>Extended Mix</b> is kept; otherwise the longest; then lossless.
-      The others go to the Windows <b>Recycle Bin</b>.</li>
+      The others go to <b>quarantine</b> (hidden <code>_quarentena</code> folder), kept 30 days before going to the Recycle Bin.</li>
   <li><b>Other:</b> genres with few tracks (Pop, Hardstyle, Rock…). The real genre stays in the tag.</li>
   <li><b>BPM:</b> <code>No Genre</code> and <code>Other</code> are split into BPM folders.</li>
   <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.</li>
 </ul>
 <h3>Made a mistake?</h3>
-<p><b>Undo last run</b> moves back the files moved in the last run.
-   Files sent to the Recycle Bin are restored from Windows (Recycle Bin › Restore).</p>
+<p><b>Undo last run</b> reverts the whole last run: files go back where they were, removed duplicates and junk
+   come out of quarantine, and the original tags (genre, album, title…) are restored.<br>
+   <b>Empty quarantine</b> sends what is in quarantine to the Recycle Bin now — after that, Undo can no
+   longer bring those files back.</p>
 <h3>Where data is kept</h3>
 <p class="muted">Settings and keys: <code>%APPDATA%\\Cratekeeper\\config.json</code> (this PC only).<br>
    Caches and logs: <code>%APPDATA%\\Cratekeeper\\bibliotecas</code> — outside your music folder,

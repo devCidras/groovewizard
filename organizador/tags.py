@@ -1,5 +1,7 @@
 """Reading and writing tags (mutagen), plus the name parsing used by dedupe and online lookup."""
+import base64
 import os
+import pickle
 import re
 import unicodedata
 
@@ -16,6 +18,8 @@ GENRE_KEYS = ("TCON", "genre", "GENRE", "\xa9gen")
 SPAM = re.compile(r"https?:|www\.|\.com\b|\.net\b|\.org\b", re.I)
 LIST_SEP = re.compile(r"[;,|]")
 VERSION = re.compile(r"[\(\[]\s*(extended|original|radio|club)?\s*(mix|edit|version|extended)\s*[\)\]]", re.I)
+# strict mode: only Original/Extended are the same arrangement; Radio Edit / Club Mix stay separate tracks
+VERSION_STRICT = re.compile(r"[\(\[]\s*(extended|original)\s*(mix|version)?\s*[\)\]]", re.I)
 JUNK = re.compile(r"[\(\[]?\s*(www\.\S+|\S+\.(com|org|net))\s*[\)\]]?|\[whoplaymusic\]|\(\d{4}\)|\(\d+\)$", re.I)
 LEADING_NUM = re.compile(r"^\s*(\[[^\]]*\]\s*)?(\d+[A-Za-z]?\s*[-.]\s*)*(\d+[\s.]+)?")  # "01. ", "1A - 145 - ", "[9A, 130] "
 
@@ -76,10 +80,10 @@ def genre_from_folder(path, pack=None):
 
 def write_genre(path, genre):
     """Genre = one value. genre '' removes the tag."""
-    f = mutagen.File(path)
-    if f is None:
-        raise ValueError("formato nao reconhecido")
-    ext = os.path.splitext(path)[1].lower()
+    fix_tags(path, genre=genre)
+
+
+def _set_genre(f, ext, genre):
     if ext in ID3_EXT:
         if f.tags is None:
             if not genre:
@@ -98,7 +102,6 @@ def write_genre(path, genre):
             f.tags[key] = [genre]
         elif key in f.tags:
             del f.tags[key]
-    f.save()
 
 
 def tag_bpm(path):
@@ -154,21 +157,22 @@ def artists_key(a):
     return " + ".join(sorted({norm(p) for p in parts if norm(p)}))
 
 
-def title_key(t):
+def title_key(t, merge_versions=True):
     t = JUNK.sub("", t)
     # drop "feat. X" but stop before "(... Remix)" so the remix name survives
     t = re.sub(r"[\(\[]\s*(feat|ft)\b[^\)\]]*[\)\]]|\s(feat|ft)\.?\s[^\(\[]*", " ", t, flags=re.I)
-    while VERSION.search(t):
-        t = VERSION.sub("", t)
+    rx = VERSION if merge_versions else VERSION_STRICT
+    while rx.search(t):
+        t = rx.sub("", t)
     return norm(t)
 
 
-def track_key(path):
+def track_key(path, merge_versions=True):
     """Same song = same artists (any order, feat ignored) + same title (mix name ignored)."""
     at = artist_title(path)
     if not at:
         return None
-    a, t = artists_key(at[0]), title_key(at[1])
+    a, t = artists_key(at[0]), title_key(at[1], merge_versions)
     return f"{a} | {t}" if a and t else None
 
 
@@ -212,9 +216,13 @@ def _has_site(text):
 
 def clean_sites(path, write=True):
     """Removes download-site names from album/title/comment/... Returns number of fields changed."""
+    if write:
+        return fix_tags(path, clean=True)[1]
     f = mutagen.File(path)
-    if not f or not f.tags:
-        return 0
+    return _clean(f, path, False) if f and f.tags else 0
+
+
+def _clean(f, path, write):
     changed = 0
     for key in list(f.tags.keys()):
         if os.path.splitext(path)[1].lower() in ID3_EXT:
@@ -244,6 +252,65 @@ def clean_sites(path, write=True):
             f.tags[key].text = new
         else:
             f.tags[key] = new
-    if write and changed:
-        f.save()
     return changed
+
+
+def fix_tags(path, genre=None, clean=False):
+    """genre: None = leave, '' = remove, text = set. One save for both edits. -> (genre_changed, site_fields_changed)."""
+    f = mutagen.File(path)
+    if f is None:
+        raise ValueError("formato nao reconhecido")
+    ext = os.path.splitext(path)[1].lower()
+    g = 0
+    if genre is not None and not (f.tags is None and not genre):
+        _set_genre(f, ext, genre)
+        g = 1
+    s = _clean(f, path, True) if clean and f.tags else 0
+    if g or s:
+        f.save()
+    return g, s
+
+
+# ---------- backup / restore of the text tags (for Undo) ----------
+
+_PICTURES = ("APIC", "covr", "metadata_block_picture", "PIC")
+
+
+def _text_keys(f):
+    return [k for k in f.tags.keys() if not str(k).startswith(_PICTURES)] if f.tags is not None else []
+
+
+def snapshot(path):
+    """Text tags (no cover art) as a compact string, to put the file back as it was."""
+    f = mutagen.File(path)
+    if f is None:
+        return ""
+    id3 = os.path.splitext(path)[1].lower() in ID3_EXT
+    data = None if f.tags is None else {k: (f.tags.getall(k) if id3 else list(f.tags[k])) for k in _text_keys(f)}
+    return base64.b64encode(pickle.dumps((id3, data), protocol=4)).decode("ascii")
+
+
+def restore(path, snap):
+    """Undo of fix_tags: text tags back to the snapshot. Only reads snapshots this app wrote itself."""
+    if not snap:
+        return
+    id3, data = pickle.loads(base64.b64decode(snap))  # our own run log in %APPDATA%, never external input
+    f = mutagen.File(path)
+    if f is None:
+        raise ValueError("formato nao reconhecido")
+    if f.tags is None:
+        if not data:
+            return
+        f.add_tags()
+    for k in _text_keys(f):
+        if not data or k not in data:
+            if id3:
+                f.tags.delall(k)
+            else:
+                del f.tags[k]
+    for k, v in (data or {}).items():
+        if id3:
+            f.tags.setall(k, v)
+        else:
+            f.tags[k] = v
+    f.save()
