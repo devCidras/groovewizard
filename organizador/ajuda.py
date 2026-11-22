@@ -3,7 +3,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QTextBrowser, QVBoxLayout
 
 from . import __version__
-from .pipeline import APP_DIR
 from .theme import C
 
 AUTHOR = "devCidras"
@@ -58,8 +57,8 @@ HELP = _CSS + f"""
    O que foi para a Reciclagem restauras pelo Windows (Reciclagem › Restaurar).</p>
 
 <h3>Onde ficam os dados</h3>
-<p class="muted">Definições e chaves: <code>{APP_DIR}\\config.json</code> (só neste PC).<br>
-   Caches e registos: <code>{APP_DIR}\\bibliotecas</code> — fora da pasta das músicas, para não aparecerem
+<p class="muted">Definições e chaves: <code>%APPDATA%\\OrganizadorMusica\\config.json</code> (só neste PC).<br>
+   Caches e registos: <code>%APPDATA%\\OrganizadorMusica\\bibliotecas</code> — fora da pasta das músicas, para não aparecerem
    se a partilhares no Soulseek / Nicotine+.</p>
 
 <h3>Problemas comuns</h3>
