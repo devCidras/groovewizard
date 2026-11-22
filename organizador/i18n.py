@@ -40,7 +40,7 @@ def system_lang():
 
 S = {
     # header
-    "app.title": {"pt": "Organizador de Música", "en": "Music Organizer"},
+    "app.title": {"pt": "Cratekeeper", "en": "Cratekeeper"},
     "app.subtitle": {"pt": "Arruma a tua biblioteca por género, sem repetidas, com as tags limpas.",
                      "en": "Sorts your library by genre, without duplicates, with clean tags."},
     "btn.help": {"pt": "Ajuda", "en": "Help"},

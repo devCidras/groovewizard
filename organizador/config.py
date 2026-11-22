@@ -1,4 +1,4 @@
-"""User settings in %APPDATA%\\OrganizadorMusica\\config.json (folder, API keys, options, language, accepted terms).
+"""User settings in %APPDATA%\\Cratekeeper\\config.json (folder, API keys, options, language, accepted terms).
 
 Never in the repo, never sent anywhere.
 """

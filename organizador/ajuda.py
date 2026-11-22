@@ -8,7 +8,7 @@ from .i18n import LANGS, lang, set_lang, t
 from .theme import C
 
 AUTHOR = "devCidras"
-REPO = "https://github.com/devCidras/organizador-musica"
+REPO = "https://github.com/devCidras/cratekeeper"
 
 _CSS = f"""
 <style>
@@ -56,8 +56,8 @@ HELP = {
 <p><b>Desfazer última</b> devolve os ficheiros que foram movidos na última execução.
    O que foi para a Reciclagem restauras pelo Windows (Reciclagem › Restaurar).</p>
 <h3>Onde ficam os dados</h3>
-<p class="muted">Definições e chaves: <code>%APPDATA%\\OrganizadorMusica\\config.json</code> (só neste PC).<br>
-   Caches e registos: <code>%APPDATA%\\OrganizadorMusica\\bibliotecas</code> — fora da pasta das músicas,
+<p class="muted">Definições e chaves: <code>%APPDATA%\\Cratekeeper\\config.json</code> (só neste PC).<br>
+   Caches e registos: <code>%APPDATA%\\Cratekeeper\\bibliotecas</code> — fora da pasta das músicas,
    para não aparecerem se a partilhares no Soulseek / Nicotine+.</p>
 <h3>Problemas comuns</h3>
 <ul>
@@ -99,8 +99,8 @@ HELP = {
 <p><b>Undo last run</b> moves back the files moved in the last run.
    Files sent to the Recycle Bin are restored from Windows (Recycle Bin › Restore).</p>
 <h3>Where data is kept</h3>
-<p class="muted">Settings and keys: <code>%APPDATA%\\OrganizadorMusica\\config.json</code> (this PC only).<br>
-   Caches and logs: <code>%APPDATA%\\OrganizadorMusica\\bibliotecas</code> — outside your music folder,
+<p class="muted">Settings and keys: <code>%APPDATA%\\Cratekeeper\\config.json</code> (this PC only).<br>
+   Caches and logs: <code>%APPDATA%\\Cratekeeper\\bibliotecas</code> — outside your music folder,
    so they don't show up if you share it on Soulseek / Nicotine+.</p>
 <h3>Common problems</h3>
 <ul>
@@ -113,7 +113,7 @@ HELP = {
 
 ABOUT = {
     "pt": """
-<h2>Organizador de Música</h2>
+<h2>Cratekeeper</h2>
 <p class="muted">Versão {v}</p>
 <p>Arruma bibliotecas de música de DJ: extrai packs, separa por género e subgénero, remove repetidas
    ficando com a Extended Mix, procura géneros online e limpa as tags.</p>
@@ -127,7 +127,7 @@ ABOUT = {
 <p class="muted">MIT — podes usar, alterar e partilhar livremente.</p>
 """,
     "en": """
-<h2>Music Organizer</h2>
+<h2>Cratekeeper</h2>
 <p class="muted">Version {v}</p>
 <p>Tidies DJ music libraries: extracts packs, sorts by genre and subgenre, removes duplicates keeping the
    Extended Mix, looks up genres online and cleans tags.</p>

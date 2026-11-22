@@ -10,7 +10,7 @@ import urllib.request
 from .regras import ONLINE_RULES
 from .tags import norm
 
-UA = "OrganizadorMusica/0.1 (+https://github.com)"
+UA = "Cratekeeper/0.1 (+https://github.com)"
 
 
 def folder_for(tag):

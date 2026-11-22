@@ -24,7 +24,13 @@ from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (LIST_SEP, LOSSLESS, SPAM, clean_sites, duration, genre_from_folder, genre_of, is_audio,
                    normalize_genre, raw_genre, search_terms, track_key, write_genre)
 
-APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "OrganizadorMusica")
+APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Cratekeeper")
+_OLD_DIR = os.path.join(os.path.dirname(APP_DIR), "OrganizadorMusica")  # name before v0.2
+if os.path.isdir(_OLD_DIR) and not os.path.exists(APP_DIR):
+    try:
+        os.rename(_OLD_DIR, APP_DIR)
+    except OSError:
+        pass
 ARCHIVES = {".zip", ".rar", ".7z"}
 SKIP_DIRS = {"downloading", "incomplete"}  # transfers still in progress (Soulseek / Nicotine+)
 INBOX = "_entrada"  # where packs are extracted before sorting

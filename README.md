@@ -1,4 +1,4 @@
-# Organizador de Música
+# Cratekeeper
 
 App para Windows que arruma uma biblioteca de música de DJ: extrai os packs descarregados, separa as faixas por género (e subgénero), remove repetidas ficando com a Extended Mix, procura online o género das que não o têm e limpa as tags (sites de download no Álbum, listas de géneros, etc.).
 
@@ -28,7 +28,7 @@ Tudo o que é movido fica registado: o botão **Desfazer última** devolve os fi
 
 Fecha o rekordbox/Serato enquanto organizas.
 
-As chaves e as definições ficam em `%APPDATA%\OrganizadorMusica\config.json`, só no teu PC. Caches e registos ficam em `%APPDATA%\OrganizadorMusica\bibliotecas\` — **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+.
+As chaves e as definições ficam em `%APPDATA%\Cratekeeper\config.json`, só no teu PC. Caches e registos ficam em `%APPDATA%\Cratekeeper\bibliotecas\` — **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+.
 
 ## Correr do código
 
@@ -41,7 +41,7 @@ Testes: `python tests/test_pipeline.py`
 
 Para medir o BPM das faixas que não o têm na tag: `pip install librosa` (opcional).
 
-Gerar o `.exe`: `powershell -File build.ps1` → `dist\OrganizadorMusica.exe`.
+Gerar o `.exe`: `powershell -File build.ps1` → `dist\Cratekeeper.exe`.
 
 ## Personalizar géneros
 
