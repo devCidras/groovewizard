@@ -5,7 +5,7 @@ import threading
 import traceback
 
 from PySide6.QtCore import QObject, QPropertyAnimation, QRectF, QSize, Qt, QThread, Signal, Property
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
                                QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
@@ -165,7 +165,12 @@ class Window(QMainWindow):
         titles.addWidget(QLabel("Organizador de Música", objectName="title"))
         titles.addWidget(QLabel("Arruma a tua biblioteca por género, sem repetidas, com as tags limpas.", objectName="subtitle"))
         head.addLayout(titles, 1)
+        for label, tip, fn in (("Ajuda", "Como usar (F1)", self.show_help), ("Sobre", "Quem fez, versão, licença", self.show_about)):
+            b = QPushButton(label, objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=tip)
+            b.clicked.connect(fn)
+            head.addWidget(b, 0, Qt.AlignTop)
         head.addWidget(QLabel(f"v{__version__}", objectName="badge"), 0, Qt.AlignTop)
+        QShortcut(QKeySequence("F1"), self, self.show_help)
         outer.addLayout(head)
 
         cols = QHBoxLayout()
@@ -298,6 +303,14 @@ class Window(QMainWindow):
         return tg
 
     # ---------- actions ----------
+
+    def show_help(self):
+        from .ajuda import HELP, InfoDialog
+        InfoDialog("Ajuda — Organizador de Música", HELP, self).exec()
+
+    def show_about(self):
+        from .ajuda import ABOUT, InfoDialog
+        InfoDialog("Sobre", ABOUT, self, (540, 540)).exec()
 
     def pick_folder(self):
         d = QFileDialog.getExistingDirectory(self, "Pasta das músicas", self.folder.text())
