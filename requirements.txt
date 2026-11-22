@@ -1,5 +1,5 @@
-mutagen>=1.47
-PySide6>=6.7
-Send2Trash>=1.8
-# opcional: medir BPM das faixas sem tag de BPM
+mutagen==1.48.1
+PySide6==6.12.0
+Send2Trash==2.2.0
+# opcional: medir BPM das faixas sem tag de BPM (fica fora do .exe)
 # librosa>=0.10

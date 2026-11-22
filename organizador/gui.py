@@ -130,7 +130,7 @@ class Worker(QObject):
             if self.kind == "undo":
                 rep, errs = undo_last(self.opts.root, emit, self.cancel)
             elif self.kind == "purge":
-                rep, errs = {"purged": purge_quarantine(self.opts.root)}, []
+                rep, errs = {"purged": purge_quarantine(self.opts.root)}, []  # takes the library lock
             else:
                 org = Organizer(self.opts, self.keys, emit, self.cancel)
                 rep, errs = (org.preview(), []) if self.kind == "preview" else org.run()
@@ -396,6 +396,7 @@ class Window(QMainWindow):
         self.worker.failed.connect(self.on_failed)
         for sig in (self.worker.finished, self.worker.failed):
             sig.connect(self.thread.quit)
+        self.thread.finished.connect(self._thread_done)
         self.busy(True)
         self.log.appendPlainText(f"— {t('log.kind.' + kind)}: {opts.root}")
         self.status.setText(t("status.starting"))
@@ -437,8 +438,14 @@ class Window(QMainWindow):
             self.current_row = row
             row.set("running", f"{i:,} / {n:,}".replace(",", " "))
 
-    def on_finished(self, kind, rep, errs):
+    def _thread_done(self):
+        thread, worker = self.thread, self.worker
+        self.thread = self.worker = None
+        worker.deleteLater()
+        thread.deleteLater()
         self.busy(False)
+
+    def on_finished(self, kind, rep, errs):
         self.bar.setMaximum(1)
         self.bar.setValue(1)
         for _, r in self.step_rows:
@@ -454,9 +461,10 @@ class Window(QMainWindow):
                 self.log.appendPlainText(f"   {e}")
         if kind == "run":
             self.log.appendPlainText(t("log.rekordbox"))
+        if kind == "preview":
+            self.log.appendPlainText(t("log.preview_limits"))
 
     def on_failed(self, msg):
-        self.busy(False)
         if self.current_row is not None:
             self.current_row.set("error")
         self.status.setText(t("status.stopped"))

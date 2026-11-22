@@ -115,7 +115,8 @@ def main():
     t0 = time.time()
     rep, errs = pl.undo_last(dst)
     print(f"desfazer: {time.time() - t0:.0f} s", dict(rep), "erros:", errs[:5])
-    back = {k: v for k, v in state(dst).items() if not k.startswith(pl.INBOX)}
+    # the extracted copies are put aside in quarantine (the zip itself stays), so compare the rest
+    back = {k: v for k, v in state(dst).items() if not k.startswith((pl.INBOX, pl.QUARANTINE))}
     assert {k: v for k, v in back.items()} == before, "desfazer nao repos tudo igual"
     print("ok: desfazer repos caminhos, audio e generos exatamente como antes")
 

@@ -2,7 +2,7 @@
 # Precisa: Python, e o Inno Setup 6 (https://jrsoftware.org/isinfo.php) para o instalador.
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
-python -m pip install --quiet pyinstaller -r requirements.txt
+python -m pip install --quiet pyinstaller==6.22.3 -r requirements.txt
 $version = python -c "import organizador; print(organizador.__version__)"
 
 # termos em .txt para o ecra de licenca do instalador (mesmo texto que a app mostra)

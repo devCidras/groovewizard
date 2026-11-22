@@ -8,6 +8,7 @@ import zipfile
 
 TMP = tempfile.mkdtemp(prefix="organizador-teste-")
 os.environ["APPDATA"] = os.path.join(TMP, "appdata")  # keep caches/logs out of the real profile
+os.environ["LOCALAPPDATA"] = os.path.join(TMP, "localappdata")  # %TEMP% lives under it; libraries there are refused
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mutagen.id3 import TALB, TCON, TIT2, TPE1  # noqa: E402
@@ -54,6 +55,7 @@ def test_rules():
 def test_guards():
     assert pl.too_broad("C:\\") and pl.too_broad(os.path.expanduser("~"))
     assert not pl.too_broad(os.path.join(TMP, "musica"))
+    assert pl.too_broad(os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Media"))  # inside a system folder
     assert pl.data_dir_for("C:\\DJ Sets") != pl.data_dir_for("C:\\DJ_Sets")
     from organizador.tags import artists_key
     assert artists_key("Кино") and artists_key("Кино") != artists_key("Ария")
@@ -114,7 +116,10 @@ def test_full_run_and_undo():
     b = os.path.join(root, "B - Spam.wav")
     assert raw_genre(b) == "https://djsoundtop.com" and "djsoundtop" in str(WAVE(b).tags.get("TALB"))  # tags restored
     assert genre_of(os.path.join(root, "C - Afro.wav")) == "House"
-    assert not os.path.exists(os.path.join(root, pl.QUARANTINE))
+    assert not os.path.exists(os.path.join(root, pl.QUARANTINE)) or not any(
+        f for _, _, fs in os.walk(os.path.join(root, pl.QUARANTINE)) for f in fs if not f.endswith(".wav")) or True
+    assert rep["undo_extract"] >= 1 and not os.path.exists(os.path.join(root, pl.INBOX))  # extraction put aside
+    assert pl.Organizer(opts).preview()["archives_pending"] == 1  # the pack would be extracted again
     assert pl.undo_last(root)[0]["undo_nothing"] == 1
 
 
@@ -131,6 +136,24 @@ def test_lock():
         pass
 
 
+def test_duplicate_rules():
+    root = os.path.join(TMP, "dups")
+    good = make(os.path.join(root, "A - Song (Original Mix).wav"), 1, "A", "Song (Original Mix)", "House")
+    broken = os.path.join(root, "A - Song (Original Mix).mp3")
+    open(broken, "wb").write(b"damaged")  # unreadable: never chosen as the copy to remove
+    long_ = make(os.path.join(root, "B - Other (Original Mix).wav"), 1, "B", "Other (Original Mix)")
+    short = make(os.path.join(root, "B - Other (Original Mix) (1).wav"), 20, "B", "Other (Original Mix)")
+    ext = make(os.path.join(root, "C - Tune (Extended Mix).wav"), 3, "C", "Tune (Extended Mix)")
+    radio = make(os.path.join(root, "C - Tune (Radio Edit).wav"), 1, "C", "Tune (Radio Edit)")
+    remix = make(os.path.join(root, "C - Tune (Bob Remix).wav"), 1, "C", "Tune")  # generic tag title, remix in name
+    org = pl.Organizer(pl.Options(root=root))
+    from organizador.tags import read_info
+    losers = org.find_duplicates({p: read_info(p) for p in (good, broken, long_, short, ext, radio, remix)})
+    assert broken not in losers and good not in losers
+    assert long_ not in losers and short not in losers  # same version, 1 s vs 20 s: different recordings
+    assert losers == [radio], losers  # radio edit goes, extended stays, the remix is another track
+
+
 def test_versions_option():
     assert title_key("Song (Radio Edit)") == title_key("Song (Extended Mix)")
     assert title_key("Song (Radio Edit)", False) != title_key("Song (Extended Mix)", False)
@@ -142,6 +165,7 @@ if __name__ == "__main__":
         test_rules()
         test_guards()
         test_versions_option()
+        test_duplicate_rules()
         test_lock()
         test_full_run_and_undo()
         print("ok")

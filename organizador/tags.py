@@ -16,6 +16,7 @@ ID3_EXT = {".mp3", ".aiff", ".aif", ".wav"}
 GENRE_KEYS = ("TCON", "genre", "GENRE", "\xa9gen")
 
 SPAM = re.compile(r"https?:|www\.|\.com\b|\.net\b|\.org\b", re.I)
+JUNK_TAG_SPAM = SPAM  # a genre tag that is a site
 LIST_SEP = re.compile(r"[;,|]")
 VERSION = re.compile(r"[\(\[]\s*(extended|original|radio|club)?\s*(mix|edit|version|extended)\s*[\)\]]", re.I)
 # strict mode: only Original/Extended are the same arrangement; Radio Edit / Club Mix stay separate tracks
@@ -200,12 +201,33 @@ def title_key(t, merge_versions=True):
     return norm(t)
 
 
+_REMIX = re.compile(r"[\(\[]([^\)\]]*\b(?:remix|rework|bootleg|vip|dub|refix|flip|edit|mix)\b[^\)\]]*)[\)\]]", re.I)
+
+
+def _name_title(path):
+    stem = LEADING_NUM.sub("", JUNK.sub("", os.path.splitext(os.path.basename(path))[0]))
+    return stem.split(" - ", 1)[1] if " - " in stem else ""
+
+
+def version_label(path, info=None):
+    """'extended mix', 'radio edit', 'x remix'... from the title (tag, else file name); '' when none."""
+    at = artist_title(path, info)
+    found = _REMIX.findall(at[1]) if at else []
+    return norm(found[-1]) if found else ""
+
+
 def track_key(path, merge_versions=True, info=None):
     """Same song = same artists (any order, feat ignored) + same title (mix name ignored)."""
     at = artist_title(path, info)
     if not at:
         return None
     a, t = artists_key(at[0]), title_key(at[1], merge_versions)
+    # a generic tag title ('Track') must not hide the remix written in the file name ('Track (X Remix)')
+    rx = VERSION if merge_versions else VERSION_STRICT
+    for token in _REMIX.findall(_name_title(path)):
+        nt = norm(token)
+        if nt and nt not in norm(at[1]) and not rx.fullmatch(f"({token})"):
+            t = f"{t} {nt}"
     return f"{a} | {t}" if a and t else None
 
 

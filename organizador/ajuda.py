@@ -53,8 +53,9 @@ HELP = {
   <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.</li>
 </ul>
 <h3>Enganei-me, e agora?</h3>
-<p><b>Desfazer última</b> anula a última execução por completo: devolve os ficheiros ao sítio onde estavam,
-   tira da quarentena as repetidas e o lixo removidos, e repõe as tags originais (género, álbum, título…).<br>
+<p><b>Desfazer última</b> anula a última execução: devolve os ficheiros ao sítio onde estavam, tira da quarentena
+   as repetidas e o lixo removidos, repõe as tags originais (género, álbum, título…) e põe de lado o que foi
+   extraído dos packs (os packs ficam). Se algum ficheiro estiver aberto noutro programa, fecha-o e carrega outra vez.<br>
    <b>Esvaziar quarentena</b> envia já para a Reciclagem o que está em quarentena — a partir daí o Desfazer
    já não recupera esses ficheiros.</p>
 <h3>Onde ficam os dados</h3>
@@ -98,8 +99,9 @@ HELP = {
   <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.</li>
 </ul>
 <h3>Made a mistake?</h3>
-<p><b>Undo last run</b> reverts the whole last run: files go back where they were, removed duplicates and junk
-   come out of quarantine, and the original tags (genre, album, title…) are restored.<br>
+<p><b>Undo last run</b> reverts the last run: files go back where they were, removed duplicates and junk come out of
+   quarantine, the original tags (genre, album, title…) are restored and what was extracted from packs is put aside
+   (the packs stay). If a file is open in another program, close it and press Undo again.<br>
    <b>Empty quarantine</b> sends what is in quarantine to the Recycle Bin now — after that, Undo can no
    longer bring those files back.</p>
 <h3>Where data is kept</h3>
