@@ -43,6 +43,10 @@ def test_rules():
     assert normalize_genre("Tech House, Deep House") == "Tech House"
     assert strip_sites("Rockin' (Extended Mix) - www.djsoundtop.com") == "Rockin' (Extended Mix)"
     assert strip_sites("djsoundtop.com") == ""
+    assert strip_sites("Crazy (Extended Mix) [4DJsonline.com]") == "Crazy (Extended Mix)"
+    assert strip_sites("https://electronicfresh.com") == ""
+    for real in ("Love.me (Extended Mix)", "Back.to Life", "Toolroom Records", "Original Mix"):
+        assert strip_sites(real) == real, real
     assert title_key("Go Back feat. Julia (Extended Mix)") == title_key("Go Back (Original Mix)")
     assert title_key("Ocean (Marlon Hoffstadt Remix)") != title_key("Ocean")
 
@@ -54,9 +58,14 @@ def test_full_run_and_undo():
     make(os.path.join(root, "B - Spam.wav"), 1, "B", "Spam", "https://djsoundtop.com", album="djsoundtop.com")
     make(os.path.join(root, "C - Afro.wav"), 1, "C", "Afro", "Afro House")
     pack = make(os.path.join(TMP, "pack", "D - Dark.wav"), 1, "D", "Dark")  # untagged, genre from pack name
+    inner = os.path.join(TMP, "pack", "CD2.zip")
+    with zipfile.ZipFile(inner, "w") as z:  # pack inside a pack
+        z.write(make(os.path.join(TMP, "pack", "E - Deep.wav"), 1, "E", "Deep"), "E - Deep.wav")
     with zipfile.ZipFile(os.path.join(root, "Best New Hard Techno Nov.zip"), "w") as z:
         z.write(pack, "D - Dark.wav")
+        z.write(inner, "CD2.zip")
         z.writestr("cover.txt", "x")
+        z.writestr("bonus.ogg", "not handled")  # unknown format: must not be thrown away
 
     opts = pl.Options(root=root, online=False, bpm_folders=True)
     org = pl.Organizer(opts)
@@ -72,9 +81,11 @@ def test_full_run_and_undo():
     afro = os.path.join(house, "House", "C - Afro.wav")
     assert raw_genre(afro) == "Afro House"  # specific tag kept, it belongs to this folder
     assert os.path.exists(os.path.join(root, "Techno", "Hard Techno", "D - Dark.wav"))
+    assert os.path.exists(os.path.join(root, "Techno", "Hard Techno", "E - Deep.wav"))  # from the inner zip
+    assert any(p.endswith("bonus.ogg") for p in map(str, __import__("pathlib").Path(root).rglob("*"))), "ogg kept"
     spam = os.path.join(root, "Sem Genero", "BPM desconhecido", "B - Spam.wav")
     assert os.path.exists(spam) and raw_genre(spam) == "" and "djsoundtop" not in str(WAVE(spam).tags.get("TALB"))
-    assert not os.path.exists(os.path.join(root, pl.INBOX)) and not os.path.exists(os.path.join(root, "solta"))
+    assert not os.path.exists(os.path.join(root, "solta"))
 
     rep2, _ = pl.Organizer(opts).run()  # second run: nothing to move
     assert not any(k.startswith("moved") for k in rep2), rep2

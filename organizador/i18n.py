@@ -123,6 +123,8 @@ S = {
                               "Afterwards, use 'Relocate' in it.\n\nContinue?"},
     "msg.undo_confirm": {"pt": "Devolver os ficheiros movidos na última vez?\nO que foi para a Reciclagem restaura-se pelo Windows.",
                          "en": "Move back the files moved in the last run?\nFiles sent to the Recycle Bin are restored from Windows."},
+    "msg.close_running": {"pt": "Ainda está a trabalhar. Cancelar e fechar quando terminar o ficheiro atual?",
+                          "en": "Still working. Cancel and close once the current file is done?"},
     "msg.cancelled": {"pt": "Cancelado. O que já foi feito fica feito e pode ser desfeito.",
                       "en": "Cancelled. What was already done stays done and can be undone."},
     "log.kind.preview": {"pt": "Pré-visualizar", "en": "Preview"},

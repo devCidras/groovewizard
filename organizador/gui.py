@@ -386,6 +386,16 @@ class Window(QMainWindow):
         self.status.setText(t("status.starting"))
         self.thread.start()
 
+    def closeEvent(self, event):
+        """Never kill the worker mid-file (a half-written tag corrupts the track): cancel, then close."""
+        if self.thread and self.thread.isRunning():
+            event.ignore()
+            if QMessageBox.question(self, t("app.title"), t("msg.close_running")) == QMessageBox.Yes:
+                self.do_cancel()
+                self.thread.finished.connect(self.close)
+            return
+        event.accept()
+
     def undo(self):
         opts, keys = self.current()
         if QMessageBox.question(self, t("btn.undo"), t("msg.undo_confirm")) == QMessageBox.Yes:

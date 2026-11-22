@@ -32,6 +32,9 @@ if os.path.isdir(_OLD_DIR) and not os.path.exists(APP_DIR):
     except OSError:
         pass
 ARCHIVES = {".zip", ".rar", ".7z"}
+# what packs bring besides music; anything else left in _entrada is kept for the user to check
+JUNK_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".txt", ".nfo", ".url", ".htm", ".html", ".m3u", ".m3u8",
+            ".sfv", ".md5", ".cue", ".log", ".pdf", ".db", ".ini", ".ds_store"}
 SKIP_DIRS = {"downloading", "incomplete"}  # transfers still in progress (Soulseek / Nicotine+)
 INBOX = "_entrada"  # where packs are extracted before sorting
 SEVEN_ZIP = [r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe", "7z"]
@@ -58,7 +61,7 @@ class Cancelled(Exception):
 
 def data_dir_for(root):
     """Caches and logs live in %APPDATA%, not in the music folder (which may be shared on Soulseek)."""
-    safe = re.sub(r"[^\w.-]+", "_", os.path.abspath(root)).strip("_")
+    safe = re.sub(r"[^\w.-]+", "_", os.path.normcase(os.path.abspath(root))).strip("_")  # d:\ == D:\
     d = os.path.join(APP_DIR, "bibliotecas", safe)
     os.makedirs(os.path.join(d, "execucoes"), exist_ok=True)
     return d
@@ -130,8 +133,13 @@ class Organizer:
         while os.path.exists(dst):
             dst, i = f"{base} ({i}){ext}", i + 1
         try:
-            shutil.move(src, dst)  # rename on the same drive
+            shutil.move(src, dst)  # rename on the same drive; copy + delete across drives
         except OSError as e:
+            if os.path.exists(src) and os.path.exists(dst):
+                try:
+                    os.remove(dst)  # half-copied file from a failed cross-drive move
+                except OSError:
+                    pass
             self.errors.append(f"{src}: {e}")
             return None
         self._write_log("mover", src, dst)
@@ -161,9 +169,13 @@ class Organizer:
         os.replace(tmp, self._overrides_path)
 
     def remove_empty_dirs(self):
-        for dp, dirs, files in os.walk(self.root, topdown=False):
-            if dp == self.root or os.path.basename(dp).lower() in SKIP_DIRS:
-                continue
+        found = []
+        for dp, dirs, _ in os.walk(self.root):
+            # never touch transfers in progress or the root-level "_" folders
+            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not (dp == self.root and d.startswith("_") and d != INBOX)]
+            if dp != self.root:
+                found.append(dp)
+        for dp in reversed(found):  # deepest first
             try:
                 if not os.listdir(dp):
                     os.rmdir(dp)
@@ -176,15 +188,19 @@ class Organizer:
         done = self._done_archives()
         out = []
         for dp, dirs, files in os.walk(self.root):
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and d != INBOX]
+            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]  # includes _entrada: archives inside packs
             for n in files:
                 p = os.path.join(dp, n)
-                if os.path.splitext(n)[1].lower() in ARCHIVES and self._archive_id(p) not in done:
+                aid = self._archive_id(p) if os.path.splitext(n)[1].lower() in ARCHIVES else None
+                if aid and aid not in done:
                     out.append(p)
         return sorted(out)
 
     def _archive_id(self, p):
-        return f"{os.path.basename(p)}|{os.path.getsize(p)}"
+        try:
+            return f"{os.path.basename(p)}|{os.path.getsize(p)}"
+        except OSError:  # vanished (e.g. moved by the download client)
+            return None
 
     def _done_archives(self):
         try:
@@ -194,12 +210,24 @@ class Organizer:
             return set()
 
     def step_extract(self):
-        archives = self.pending_archives()
-        done = self._done_archives()
         seven = _find_7zip()
+        tried = set()
+        while True:  # again for archives found inside the packs just extracted (CD1.zip, CD2.zip...)
+            archives = [a for a in self.pending_archives() if a not in tried]
+            if not archives:
+                return
+            tried.update(archives)
+            self._extract(archives, seven)
+
+    def _extract(self, archives, seven):
+        done = self._done_archives()
         for i, a in enumerate(archives, 1):
             self._tick("extract", i, len(archives), os.path.basename(a))
-            out = os.path.join(self.root, INBOX, os.path.splitext(os.path.basename(a))[0].strip(" ."))
+            stem = os.path.splitext(os.path.basename(a))[0].strip(" .")
+            inbox = os.path.join(self.root, INBOX)
+            # an archive inside a pack is extracted next to it, so the pack name still gives the genre
+            inside = os.path.normcase(a).startswith(os.path.normcase(inbox) + os.sep)
+            out = os.path.join(os.path.dirname(a) if inside else inbox, stem)
             try:
                 if a.lower().endswith(".zip"):
                     with zipfile.ZipFile(a) as z:
@@ -215,7 +243,7 @@ class Organizer:
             except Exception as e:
                 self.errors.append(f"{os.path.basename(a)}: {e}")
                 continue
-            done.add(self._archive_id(a))
+            done.add(self._archive_id(a) or a)
             with open(os.path.join(self.data, "extraidos.json"), "w", encoding="utf-8") as fh:
                 json.dump(sorted(done), fh, ensure_ascii=False)
             self.report["archives_extracted"] += 1
@@ -227,7 +255,10 @@ class Organizer:
         rel = os.path.relpath(path, self.root).split(os.sep)
         pack = rel[1] if rel[0] == INBOX and len(rel) > 2 else None
         g = self.overrides.get(name)
-        return g or genre_of(path) or genre_from_folder(path, pack) or NO_GENRE
+        if g == NO_GENRE:  # taken out of a guessed genre on purpose
+            return NO_GENRE
+        # tag first: overrides are keyed by file name, which another track may share
+        return genre_of(path) or g or genre_from_folder(path, pack) or NO_GENRE
 
     def step_organize(self):
         files = list(self.audio_files())
@@ -237,10 +268,13 @@ class Organizer:
             if not self.in_place(p, g) and self.move(p, self.target_dir(g)):
                 self.report[f"moved|{self.label(g)}"] += 1
         inbox = os.path.join(self.root, INBOX)
-        if os.path.isdir(inbox) and not any(True for _ in self.audio_files(inbox)):
-            for dp, _, fs in os.walk(inbox):  # covers, .nfo, .url... from the packs
+        if os.path.isdir(inbox):
+            done = self._done_archives()
+            for dp, _, fs in os.walk(inbox):  # covers, .nfo, .url... and inner archives already extracted
                 for n in fs:
-                    if self.trash(os.path.join(dp, n)):
+                    p = os.path.join(dp, n)
+                    ext = os.path.splitext(n)[1].lower()
+                    if (ext in JUNK_EXT or (ext in ARCHIVES and self._archive_id(p) in done)) and self.trash(p):
                         self.report["junk_trashed"] += 1
         self.remove_empty_dirs()
 
@@ -248,19 +282,26 @@ class Organizer:
     def _score(path, dur):
         # DJ preference: Extended Mix, then longest, then lossless, then bigger file
         ext = bool(re.search(r"extended", os.path.basename(path), re.I))
-        return ext, round(dur), os.path.splitext(path)[1].lower() in LOSSLESS, os.path.getsize(path)
+        try:
+            size = os.path.getsize(path)
+        except OSError:  # vanished during the run
+            size = -1
+        return ext, round(dur), os.path.splitext(path)[1].lower() in LOSSLESS, size
 
     def step_dedupe(self):
         files = list(self.audio_files())
         groups = defaultdict(list)
-        with ThreadPoolExecutor(8) as ex:
+        ex = ThreadPoolExecutor(8)
+        try:
             for i, (p, key, dur) in enumerate(ex.map(lambda p: (p, track_key(p), duration(p)), files), 1):
                 if i % 50 == 0 or i == len(files):
                     self._tick("dedupe_scan", i, len(files))
                 if key:
                     groups[key].append((p, dur))
+        finally:
+            ex.shutdown(wait=True, cancel_futures=True)  # on cancel: don't read the rest
         dups = [sorted(v, key=lambda x: self._score(*x), reverse=True) for v in groups.values() if len(v) > 1]
-        losers = [p for v in dups for p, _ in v[1:]]
+        losers = [p for v in dups for p, _ in v[1:] if os.path.exists(p)]
         for i, p in enumerate(losers, 1):
             self._tick("dedupe_remove", i, len(losers), os.path.basename(p))
             if self.trash(p):
@@ -282,9 +323,15 @@ class Organizer:
                 g, src = look.genre(*terms) if terms else (None, None)
                 if g:
                     self.overrides[os.path.basename(p)] = g
-                    if self.move(p, self.target_dir(g)):
-                        self._write_log("genero", p, f"{g} ({src})")
+                    dst = self.move(p, self.target_dir(g))
+                    if dst:
+                        self._write_log("genero", dst, g, src)
                         self.report[f"online|{g}"] += 1
+                        if self.opts.write_tags:
+                            try:
+                                write_genre(dst, g)  # the tag survives renames, the override may not
+                            except Exception as e:
+                                self.errors.append(f"{os.path.basename(dst)}: {e}")
                 if i % 25 == 0:
                     look.save()
                     self._save_overrides()
@@ -396,6 +443,18 @@ def undo_last(root, progress=None):
                 rep["undo_returned"] += 1
             except OSError as e:
                 errors.append(f"{dst}: {e}")
+    found = [os.path.basename(r[1]) for r in rows if r[0] == "genero" and len(r) > 1]
+    if found:  # otherwise the next run would move them out again
+        opath = os.path.join(data_dir_for(root), "generos_corrigidos.json")
+        try:
+            with open(opath, encoding="utf-8") as fh:
+                ov = json.load(fh)
+            for n in found:
+                ov.pop(n, None)
+            with open(opath, "w", encoding="utf-8") as fh:
+                json.dump(ov, fh, ensure_ascii=False)
+        except (OSError, json.JSONDecodeError):
+            pass
     rep["undo_in_trash"] = sum(1 for r in rows if r[0] == "reciclagem")
     os.replace(path, path[:-4] + ".desfeito.csv")
     return rep, errors

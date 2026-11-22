@@ -186,9 +186,12 @@ def search_terms(path):
 
 # ---------- download-site spam in text tags ----------
 
-SITE = r"(?:https?://)?(?:www\.)?[\w-]+\.(?:com|net|org|ru|info|to|cc|me|io|pl|club)\b/?\S*"
-_PIECE = re.compile(r"\s*(?:[-|–—:]\s*)?[\[(]?\s*" + SITE + r"\s*[\])]?", re.I)
-_HAS_SITE = re.compile(SITE, re.I)
+_DOMAIN = r"(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info|to|cc|me|io|pl|club)\b/?\S*?"
+# spam = the whole field is a domain, a bracketed domain, a " - domain" suffix, or anything with www./http
+_WHOLE = re.compile(r"\s*[\[(]?\s*" + _DOMAIN + r"\s*[\])]?\s*", re.I)
+_PIECES = re.compile(r"\s*[\[(]\s*" + _DOMAIN + r"\s*[\])]"
+                     r"|\s*[-|–—]\s*" + _DOMAIN + r"\s*$"
+                     r"|\s*(?:https?://|www\.)\S+", re.I)
 _ID3_TEXT = {"TALB", "TIT2", "TPE1", "TPE2", "TPUB", "COMM", "TCOP", "TENC", "TXXX"}
 _ID3_URL = {"WXXX", "WOAS", "WOAF", "WPUB", "WCOM", "WORS"}
 _OTHER_TEXT = {"album", "title", "artist", "albumartist", "label", "organization", "comment", "description",
@@ -196,9 +199,15 @@ _OTHER_TEXT = {"album", "title", "artist", "albumartist", "label", "organization
 
 
 def strip_sites(text):
-    """'Rockin (Extended Mix) - www.site.com' -> 'Rockin (Extended Mix)'; 'site.com' -> ''."""
-    out = re.sub(r"[\[(]\s*[\])]", "", _PIECE.sub("", text)).strip(" -|–—:")
+    """'Rockin (Extended Mix) - www.site.com' -> 'Rockin (Extended Mix)'; 'site.com' -> ''; 'Love.me' stays."""
+    if _WHOLE.fullmatch(text):
+        return ""
+    out = _PIECES.sub("", text).strip(" -|–—:")
     return out if re.search(r"\w", out) else ""
+
+
+def _has_site(text):
+    return strip_sites(text) != text
 
 
 def clean_sites(path, write=True):
@@ -223,7 +232,7 @@ def clean_sites(path, write=True):
             if (key.lower() if isinstance(key, str) else key) not in _OTHER_TEXT and key not in _OTHER_TEXT:
                 continue
             old = [str(x) for x in f.tags[key]]
-        if not any(_HAS_SITE.search(x) for x in old):
+        if not any(_has_site(x) for x in old):
             continue
         new = [c for c in (strip_sites(x) for x in old) if c]
         changed += 1
