@@ -75,10 +75,16 @@ def test_full_run_and_undo():
         z.writestr("cover.txt", "x")
         z.writestr("bonus.ogg", "not handled")  # unknown format: must not be thrown away
 
+    broken = os.path.join(root, "Techno", "Techno", "broken.mp3")  # unreadable tags inside a genre folder
+    os.makedirs(os.path.dirname(broken))
+    open(broken, "wb").write(b"not really audio")
+
     opts = pl.Options(root=root, online=False, bpm_folders=True)
     org = pl.Organizer(opts)
     assert org.preview()["archives_pending"] == 1
     rep, errs = org.run()
+    assert os.path.exists(broken), "unreadable file must stay where it is"
+    errs = [e for e in errs if "broken.mp3" not in e]
     assert not errs, errs
 
     house = os.path.join(root, "House")

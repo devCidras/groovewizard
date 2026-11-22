@@ -151,7 +151,7 @@ def _first(tags, key):
 def read_info(path):
     """Everything the organizer needs from one file, with a single open: genre text, artist, title, duration."""
     f = _open(path)
-    info = {"genre": "", "artist": "", "title": "", "duration": 0.0}
+    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "unreadable": f is None}
     if not f:
         return info
     info["duration"] = f.info.length if f.info else 0.0

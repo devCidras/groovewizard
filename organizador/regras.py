@@ -15,11 +15,11 @@ _GROUPS = {
                                        "Techno ((Raw - Deep - Hypnotic)", "Dark Techno", "Deep - Hypnotic", "Hypnotic Techno"],
     "Techno (Peak Time - Driving)": ["Techno (Peak Time - Driving) - Peak Time", "Driving"],
     "Hard Techno": ["Hard Techno-Schranz", "Hardtechno", "Schranz", "Techno-Schranz", "Industrial", "Industrial Techno"],
-    "Techno House": ["Techno-House"],
+    "Techno House": ["Techno-House", "Электронная Музыка Техно-Хаус"],
     "Melodic House & Techno": ["Melodic House", "Melodic Techno", "Melodic House & Techno - Melodic House"],
     "House": ["Dance - House", "Afro House", "Latin House", "Jackin House", "Jackin' House", "French House", "Disco",
               "Dark Disco", "Tribal", "Funky-Vocal-Disco-Club House", "Organic House - Downtempo", "Electro Techno-House",
-              "Electro-Techno-House-Dance", "Afro House - Afro Melodic", "Afro House - Afro - Latin", "Afro Melodic",
+              "Electro-Techno-House-Dance", "Electro Techno-House Rock Hard Rock", "Afro House - Afro Melodic", "Afro House - Afro - Latin", "Afro Melodic",
               "Afro - Latin", "Amapiano"],
     "Tech House": ["Tech House - Latin Tech", "Groovy Minimal Tech House", "House Tech", "Latin Tech", "Tech"],
     "Deep House": ["House Deep"],
@@ -33,15 +33,15 @@ _GROUPS = {
     "Minimal - Deep Tech": ["Minimal", "Deep Tech", "Minimal-Deep Tech", "Minimal House", "Minimal Techno",
                             "Minimal-Tech House", "Minimal - Deep Tech - Minimal House"],
     "Uk Garage": ["Uk Garage - Bassline", "Future Garage"],
-    "Dance": ["Dance - Pop", "Dance-Pop", "Dance - Electro Pop", "Edm", "Dance - Electronic", "Electro House"],
+    "Dance": ["Dance - Pop", "Dance-Pop", "Dance - Electro Pop", "Edm", "Dance - Electronic", "Electro House", "Танцевальная Музыка"],
     # genres with too few tracks for their own folder
     OTHER: ["Pop", "Alternative Rock", "Klassiek", "Dub", "Hardstyle", "Pop Rock", "Tek", "Hard Dance - Hardcore - Neo Rave",
             "Dj Tools - Acapellas", "Hip-Hop-Rap", "Brazilian Funk", "Contemporary Christian", "Hard Rock", "Classical",
-            "K-Pop", "Trap - Future Bass", "Funk - Soul", "Blues", "Halftime"],
+            "K-Pop", "Trap - Future Bass", "Funk - Soul", "Blues", "Halftime", "Pokémon"],
 }
 # tags that say nothing about the style: treated as "no genre" so the online lookup tries
 _GENERIC = ["Unknown", "Other", "Various", "Club", "Electronic", "Compilation Electronic", "Compilation Electronica",
-            "Électronique", "Электронная Музыка", "Танцевальная Музыка"]
+            "Électronique", "Электронная Музыка"]
 ALIAS = {**{g: "" for g in _GENERIC}, **{s: g for g, subs in _GROUPS.items() for s in subs}}
 
 # Untagged files: genre from the pack/folder name they came from. Order matters: most specific first.

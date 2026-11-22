@@ -170,6 +170,7 @@ S = {
     "rep.genre_tag_fixed": {"pt": "géneros corrigidos na tag", "en": "genre tags fixed"},
     "rep.archives_pending": {"pt": "compactados por extrair", "en": "archives to extract"},
     "rep.to_move": {"pt": "a mover para {x}", "en": "to move to {x}"},
+    "rep.unreadable": {"pt": "faixas com tags estragadas (ficam onde estão)", "en": "tracks with damaged tags (left in place)"},
     "rep.tracks": {"pt": "faixas", "en": "tracks"},
     "rep.dups_pending": {"pt": "repetidas a remover", "en": "duplicates to remove"},
     "rep.undo_returned": {"pt": "faixas devolvidas", "en": "files moved back"},
@@ -193,6 +194,7 @@ S = {
                  "en": "This library is already being organized in another Cratekeeper window."},
     "err.crash": {"pt": "Ocorreu um erro inesperado. Os detalhes ficaram em:\n{path}",
                   "en": "An unexpected error occurred. Details were saved to:\n{path}"},
+    "err.unreadable": {"pt": "tags estragadas, ficou onde estava: {path}", "en": "damaged tags, left where it was: {path}"},
     "err.online_skipped": {"pt": "Procura online saltada: sem chaves do Discogs/Last.fm e MusicBrainz desligado.",
                            "en": "Online lookup skipped: no Discogs/Last.fm keys and MusicBrainz is off."},
     # terms

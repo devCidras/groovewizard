@@ -390,6 +390,11 @@ class Organizer:
         infos = self._read_all(files, "organize")
         for i, p in enumerate(files, 1):
             self._tick("organize", i, len(files), os.path.basename(p))
+            if infos[p]["unreadable"] and not p.startswith(os.path.join(self.root, INBOX)):
+                # damaged tags: we can't tell its genre, so it stays where it is (it may have been placed by hand)
+                self.report["unreadable"] += 1
+                self.errors.append(t("err.unreadable", path=p))
+                continue
             g = self.plan_genre(p, infos[p])
             if not self.in_place(p, g) and self.move(p, self.target_dir(g)):
                 self.report[f"moved|{self.label(g)}"] += 1
@@ -480,6 +485,8 @@ class Organizer:
         for i, p in enumerate(files, 1):
             self._tick("tags", i, len(files), os.path.basename(p))
             try:
+                if read_info(p)["unreadable"]:
+                    continue  # damaged tags: never write into them
                 genre, key = self._genre_decision(p) if self.opts.write_tags else (None, None)
                 clean = bool(self.opts.clean_sites and clean_sites(p, write=False))
                 if genre is None and not clean:
@@ -541,6 +548,9 @@ class Organizer:
         files = list(self.audio_files())
         groups = Counter()
         for p, info in self._read_all(files, "preview").items():
+            if info["unreadable"] and not p.startswith(os.path.join(self.root, INBOX)):
+                rep["unreadable"] += 1
+                continue
             g = self.plan_genre(p, info)
             if not self.in_place(p, g):
                 rep[f"to_move|{self.label(g)}"] += 1
