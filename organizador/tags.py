@@ -126,8 +126,8 @@ def duration(path):
 # ---------- names: artist / title ----------
 
 def norm(s):
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
-    return re.sub(r"[^a-z0-9]+", " ", s).strip()
+    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).casefold()
+    return re.sub(r"[\W_]+", " ", s).strip()  # accents dropped, other scripts kept
 
 
 def artist_title(path):
@@ -188,7 +188,7 @@ def search_terms(path):
 
 _DOMAIN = r"(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info|to|cc|me|io|pl|club)\b/?\S*?"
 # spam = the whole field is a domain, a bracketed domain, a " - domain" suffix, or anything with www./http
-_WHOLE = re.compile(r"\s*[\[(]?\s*" + _DOMAIN + r"\s*[\])]?\s*", re.I)
+_WHOLE = re.compile(r"\s*[\[(]?\s*(?:(?:https?://|www\.)\S+|[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info)\b/?\S*?)\s*[\])]?\s*", re.I)
 _PIECES = re.compile(r"\s*[\[(]\s*" + _DOMAIN + r"\s*[\])]"
                      r"|\s*[-|–—]\s*" + _DOMAIN + r"\s*$"
                      r"|\s*(?:https?://|www\.)\S+", re.I)

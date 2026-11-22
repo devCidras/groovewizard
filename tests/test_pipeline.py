@@ -45,10 +45,18 @@ def test_rules():
     assert strip_sites("djsoundtop.com") == ""
     assert strip_sites("Crazy (Extended Mix) [4DJsonline.com]") == "Crazy (Extended Mix)"
     assert strip_sites("https://electronicfresh.com") == ""
-    for real in ("Love.me (Extended Mix)", "Back.to Life", "Toolroom Records", "Original Mix"):
+    for real in ("Love.me (Extended Mix)", "Back.to Life", "Toolroom Records", "Original Mix", "Kiss.Me", "Toolroom.Club"):
         assert strip_sites(real) == real, real
     assert title_key("Go Back feat. Julia (Extended Mix)") == title_key("Go Back (Original Mix)")
     assert title_key("Ocean (Marlon Hoffstadt Remix)") != title_key("Ocean")
+
+
+def test_guards():
+    assert pl.too_broad("C:\\") and pl.too_broad(os.path.expanduser("~"))
+    assert not pl.too_broad(os.path.join(TMP, "musica"))
+    assert pl.data_dir_for("C:\\DJ Sets") != pl.data_dir_for("C:\\DJ_Sets")
+    from organizador.tags import artists_key
+    assert artists_key("Кино") and artists_key("Кино") != artists_key("Ария")
 
 
 def test_full_run_and_undo():
@@ -100,6 +108,7 @@ def test_full_run_and_undo():
 if __name__ == "__main__":
     try:
         test_rules()
+        test_guards()
         test_full_run_and_undo()
         print("ok")
     finally:

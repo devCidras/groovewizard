@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDi
 
 from . import __version__, config, termos
 from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
-from .pipeline import Cancelled, Options, Organizer, undo_last
+from .pipeline import Cancelled, Options, Organizer, too_broad, undo_last
 from .theme import C, QSS
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
@@ -128,7 +128,7 @@ class Worker(QObject):
         emit = lambda step, i, n, msg="": self.progress.emit(step, i, n, msg)
         try:
             if self.kind == "undo":
-                rep, errs = undo_last(self.opts.root, emit)
+                rep, errs = undo_last(self.opts.root, emit, self.cancel)
             else:
                 org = Organizer(self.opts, self.keys, emit, self.cancel)
                 rep, errs = (org.preview(), []) if self.kind == "preview" else org.run()
@@ -364,6 +364,10 @@ class Window(QMainWindow):
             opts, keys = self.current()
         if not os.path.isdir(opts.root):
             QMessageBox.warning(self, t("card.library"), t("msg.pick_folder"))
+            self.folder.setFocus()
+            return
+        if too_broad(opts.root):
+            QMessageBox.warning(self, t("card.library"), t("err.too_broad", root=opts.root))
             self.folder.setFocus()
             return
         if kind == "run" and QMessageBox.question(self, t("btn.run"), t("msg.run_confirm", root=opts.root)) != QMessageBox.Yes:

@@ -3,6 +3,7 @@
 Every move is logged so the last run can be undone. Deleted files go to the Recycle Bin, never straight away.
 """
 import csv
+import hashlib
 import json
 import os
 import re
@@ -61,10 +62,23 @@ class Cancelled(Exception):
 
 def data_dir_for(root):
     """Caches and logs live in %APPDATA%, not in the music folder (which may be shared on Soulseek)."""
-    safe = re.sub(r"[^\w.-]+", "_", os.path.normcase(os.path.abspath(root))).strip("_")  # d:\ == D:\
-    d = os.path.join(APP_DIR, "bibliotecas", safe)
+    canon = os.path.normcase(os.path.realpath(root))  # d:\ == D:\
+    tag = hashlib.sha1(canon.encode("utf-8")).hexdigest()[:12]
+    safe = re.sub(r"[^\w.-]+", "_", os.path.basename(canon.rstrip("\\/")) or "raiz")[:40]
+    d = os.path.join(APP_DIR, "bibliotecas", f"{safe}-{tag}")
     os.makedirs(os.path.join(d, "execucoes"), exist_ok=True)
     return d
+
+
+def too_broad(root):
+    """A drive root, the user profile or a system folder would sweep up every audio file on the PC."""
+    r = os.path.normcase(os.path.realpath(root)).rstrip("\\/")
+    home = os.path.normcase(os.path.expanduser("~"))
+    blocked = {home, os.path.dirname(home)}
+    for var in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "APPDATA", "LOCALAPPDATA"):
+        if os.environ.get(var):
+            blocked.add(os.path.normcase(os.environ[var]).rstrip("\\/"))
+    return os.path.dirname(r) == r or len(r) <= 3 or r in blocked
 
 
 def _find_7zip():
@@ -80,6 +94,8 @@ class Organizer:
         self.root = os.path.abspath(opts.root)
         if not os.path.isdir(self.root):
             raise ValueError(t("err.no_folder", root=self.root))
+        if too_broad(self.root):
+            raise ValueError(t("err.too_broad", root=self.root))
         self.keys = keys or {}
         self.progress = progress or (lambda step, i, n, msg="": None)
         self.cancel = cancel or threading.Event()
@@ -104,8 +120,8 @@ class Organizer:
 
     def _write_log(self, *row):
         if self._log is None:
-            path = os.path.join(self.data, "execucoes", time.strftime("%Y%m%d-%H%M%S") + ".csv")
-            self._log = open(path, "a", newline="", encoding="utf-8")
+            path = os.path.join(self.data, "execucoes", time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}-{time.time_ns() % 10**9}.csv")
+            self._log = open(path, "x", newline="", encoding="utf-8")
             self._logw = csv.writer(self._log)
         self._logw.writerow(row)
         self._log.flush()
@@ -132,9 +148,11 @@ class Organizer:
         dst, i = base + ext, 1
         while os.path.exists(dst):
             dst, i = f"{base} ({i}){ext}", i + 1
+        self._write_log("mover", src, dst)  # before the move: a crash right after still leaves a record
         try:
             shutil.move(src, dst)  # rename on the same drive; copy + delete across drives
         except OSError as e:
+            self._write_log("falhou", src, dst)
             if os.path.exists(src) and os.path.exists(dst):
                 try:
                     os.remove(dst)  # half-copied file from a failed cross-drive move
@@ -142,16 +160,16 @@ class Organizer:
                     pass
             self.errors.append(f"{src}: {e}")
             return None
-        self._write_log("mover", src, dst)
         return dst
 
     def trash(self, path):
+        self._write_log("reciclagem", path, "")
         try:
             send2trash(path)
         except Exception as e:
+            self._write_log("falhou", path, "")
             self.errors.append(f"{path}: {e}")
             return False
-        self._write_log("reciclagem", path, "")
         return True
 
     def audio_files(self, base=None):
@@ -198,7 +216,8 @@ class Organizer:
 
     def _archive_id(self, p):
         try:
-            return f"{os.path.basename(p)}|{os.path.getsize(p)}"
+            st = os.stat(p)
+            return f"{os.path.basename(p)}|{st.st_size}|{int(st.st_mtime)}"
         except OSError:  # vanished (e.g. moved by the download client)
             return None
 
@@ -227,7 +246,9 @@ class Organizer:
             inbox = os.path.join(self.root, INBOX)
             # an archive inside a pack is extracted next to it, so the pack name still gives the genre
             inside = os.path.normcase(a).startswith(os.path.normcase(inbox) + os.sep)
-            out = os.path.join(os.path.dirname(a) if inside else inbox, stem)
+            out, k = os.path.join(os.path.dirname(a) if inside else inbox, stem), 2
+            while os.path.exists(out):
+                out, k = os.path.join(os.path.dirname(a) if inside else inbox, f"{stem} ({k})"), k + 1
             try:
                 if a.lower().endswith(".zip"):
                     with zipfile.ZipFile(a) as z:
@@ -422,7 +443,7 @@ class Organizer:
         return rep
 
 
-def undo_last(root, progress=None):
+def undo_last(root, progress=None, cancel=None):
     """Moves files of the last run back. Files sent to the Recycle Bin stay there (restore them from Windows)."""
     progress = progress or (lambda *a: None)
     runs_dir = os.path.join(data_dir_for(root), "execucoes")
@@ -433,16 +454,26 @@ def undo_last(root, progress=None):
     with open(path, encoding="utf-8") as fh:
         rows = [r for r in csv.reader(fh) if r]
     rep, errors = Counter(), []
-    moves = [r for r in rows if r[0] == "mover"]
+    failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
+    trashed = {r[1] for r in rows if r[0] == "reciclagem"} - {s for s, _ in failed}
+    moves = [r for r in rows if r[0] == "mover" and (r[1], r[2]) not in failed]
     for i, (_, src, dst) in enumerate(reversed(moves), 1):
+        if cancel is not None and cancel.is_set():
+            raise Cancelled()
         progress("undo", i, len(moves), os.path.basename(src))
-        if os.path.exists(dst) and not os.path.exists(src):
-            try:
-                os.makedirs(os.path.dirname(src), exist_ok=True)
-                shutil.move(dst, src)
-                rep["undo_returned"] += 1
-            except OSError as e:
-                errors.append(f"{dst}: {e}")
+        if not os.path.exists(dst):
+            if dst not in trashed:  # removed as a duplicate later in the same run: it is in the Recycle Bin
+                errors.append(t("err.undo_missing", path=dst))
+            continue
+        if os.path.exists(src):
+            errors.append(t("err.undo_conflict", path=src))
+            continue
+        try:
+            os.makedirs(os.path.dirname(src), exist_ok=True)
+            shutil.move(dst, src)
+            rep["undo_returned"] += 1
+        except OSError as e:
+            errors.append(f"{dst}: {e}")
     found = [os.path.basename(r[1]) for r in rows if r[0] == "genero" and len(r) > 1]
     if found:  # otherwise the next run would move them out again
         opath = os.path.join(data_dir_for(root), "generos_corrigidos.json")
@@ -455,6 +486,7 @@ def undo_last(root, progress=None):
                 json.dump(ov, fh, ensure_ascii=False)
         except (OSError, json.JSONDecodeError):
             pass
-    rep["undo_in_trash"] = sum(1 for r in rows if r[0] == "reciclagem")
-    os.replace(path, path[:-4] + ".desfeito.csv")
+    rep["undo_in_trash"] = len(trashed)
+    if not errors:  # keep it pending otherwise, so it can be retried
+        os.replace(path, path[:-4] + ".desfeito.csv")
     return rep, errors

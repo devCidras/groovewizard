@@ -10,9 +10,11 @@ New-Item -ItemType Directory -Force installer\build | Out-Null
 python -c "from organizador import termos; [open(f'installer/build/termos_{k}.txt','w',encoding='utf-8-sig').write(v) for k,v in termos.TERMS.items()]"
 
 # librosa fica de fora (centenas de MB): no .exe o BPM vem so da tag
-python -m PyInstaller --noconfirm --windowed --name Cratekeeper --icon organizador\recursos\cratekeeper.ico --add-data "organizador\recursos;organizador\recursos" --exclude-module librosa --exclude-module numba --exclude-module scipy --exclude-module sklearn app.py
+python tests\test_pipeline.py
+if ($LASTEXITCODE -ne 0) { exit 1 }
+python -m PyInstaller --noconfirm --clean --windowed --name Cratekeeper --icon organizador\recursos\cratekeeper.ico --add-data "organizador\recursos;organizador\recursos" --exclude-module librosa --exclude-module numba --exclude-module scipy --exclude-module sklearn app.py
 
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
           "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $iscc) { Write-Warning "Inno Setup nao encontrado: so foi gerada a pasta dist\Cratekeeper"; exit 0 }
+if (-not $iscc) { Write-Error "Inno Setup nao encontrado (https://jrsoftware.org/isinfo.php): instalador nao gerado"; exit 1 }
 & $iscc "/DAppVersion=$version" installer\Cratekeeper.iss

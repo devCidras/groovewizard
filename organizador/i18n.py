@@ -169,6 +169,11 @@ S = {
     # errors
     "err.no_folder": {"pt": "Pasta não existe: {root}", "en": "Folder does not exist: {root}"},
     "err.need_7zip": {"pt": "precisa do 7-Zip instalado para .rar/.7z (7-zip.org)", "en": "needs 7-Zip installed for .rar/.7z (7-zip.org)"},
+    "err.too_broad": {"pt": "Pasta demasiado geral: {root}. Escolhe a pasta das músicas (ex.: D:\\musica), não o disco nem a pasta do utilizador.",
+                      "en": "Folder too broad: {root}. Choose your music folder (e.g. D:\\Music), not a whole drive or your user folder."},
+    "err.undo_missing": {"pt": "não encontrado (não devolvido): {path}", "en": "not found (not moved back): {path}"},
+    "err.undo_conflict": {"pt": "já existe outro ficheiro no sítio original (não devolvido): {path}",
+                          "en": "another file is already at the original place (not moved back): {path}"},
     "err.online_skipped": {"pt": "Procura online saltada: sem chaves do Discogs/Last.fm e MusicBrainz desligado.",
                            "en": "Online lookup skipped: no Discogs/Last.fm keys and MusicBrainz is off."},
     # terms
