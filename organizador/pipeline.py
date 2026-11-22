@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 import zipfile
+from contextlib import contextmanager
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -79,6 +80,31 @@ def data_dir_for(root):
     d = os.path.join(APP_DIR, "bibliotecas", f"{safe}-{tag}")
     os.makedirs(os.path.join(d, "execucoes"), exist_ok=True)
     return d
+
+
+class Busy(Exception):
+    pass
+
+
+@contextmanager
+def library_lock(root):
+    """One run per library at a time (two windows, or the app twice, would move the same files)."""
+    path = os.path.join(data_dir_for(root), "em_uso.lock")
+    fh = open(path, "a+")
+    try:
+        try:
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        except ImportError:  # not Windows
+            import fcntl
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        raise Busy(t("err.busy"))
+    try:
+        yield
+    finally:
+        fh.close()  # releases the lock
 
 
 def too_broad(root):
@@ -478,6 +504,10 @@ class Organizer:
     # ---------- run ----------
 
     def run(self):
+        with library_lock(self.root):
+            return self._run()
+
+    def _run(self):
         steps = [(self.opts.extract, self.step_extract), (True, self.step_organize), (self.opts.dedupe, self.step_dedupe),
                  (self.opts.online, self.step_online), (self.opts.bpm_folders, self.step_bpm),
                  (self.opts.write_tags or self.opts.clean_sites, self.step_tags)]
@@ -493,6 +523,10 @@ class Organizer:
 
     def preview(self):
         """What a run would do, without touching anything."""
+        with library_lock(self.root):
+            return self._preview()
+
+    def _preview(self):
         rep = Counter()
         rep["archives_pending"] = len(self.pending_archives())
         files = list(self.audio_files())
@@ -569,6 +603,11 @@ def _move_back(src, dst, errors):
 
 def undo_last(root, progress=None, cancel=None):
     """Undoes the last run: tags back to the originals, removed files out of quarantine, moves reversed."""
+    with library_lock(root):
+        return _undo_last(root, progress, cancel)
+
+
+def _undo_last(root, progress, cancel):
     progress = progress or (lambda *a: None)
     runs_dir = os.path.join(data_dir_for(root), "execucoes")
     runs = sorted(f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv"))

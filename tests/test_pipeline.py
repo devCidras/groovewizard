@@ -111,6 +111,19 @@ def test_full_run_and_undo():
     assert pl.undo_last(root)[0]["undo_nothing"] == 1
 
 
+def test_lock():
+    root = os.path.join(TMP, "lock")
+    os.makedirs(root)
+    with pl.library_lock(root):
+        try:
+            with pl.library_lock(root):
+                raise AssertionError("second lock should fail")
+        except pl.Busy:
+            pass
+    with pl.library_lock(root):  # free again
+        pass
+
+
 def test_versions_option():
     assert title_key("Song (Radio Edit)") == title_key("Song (Extended Mix)")
     assert title_key("Song (Radio Edit)", False) != title_key("Song (Extended Mix)", False)
@@ -122,6 +135,7 @@ if __name__ == "__main__":
         test_rules()
         test_guards()
         test_versions_option()
+        test_lock()
         test_full_run_and_undo()
         print("ok")
     finally:

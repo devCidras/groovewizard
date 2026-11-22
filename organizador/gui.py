@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDi
 
 from . import __version__, config, termos
 from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
-from .pipeline import Cancelled, Options, Organizer, purge_quarantine, too_broad, undo_last
+from .pipeline import APP_DIR, Busy, Cancelled, Options, Organizer, purge_quarantine, too_broad, undo_last
 from .theme import C, QSS
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
@@ -137,8 +137,10 @@ class Worker(QObject):
             self.finished.emit(self.kind, rep, errs)
         except Cancelled:
             self.failed.emit(t("msg.cancelled"))
+        except (Busy, ValueError) as e:  # expected: another window running, bad folder
+            self.failed.emit(str(e))
         except Exception:
-            self.failed.emit(traceback.format_exc())
+            self.failed.emit(log_crash(traceback.format_exc()))
 
 
 class Window(QMainWindow):
@@ -483,6 +485,27 @@ class Window(QMainWindow):
             col += 1
 
 
+def log_crash(text):
+    """Appends a traceback to %APPDATA%\\Cratekeeper\\erros.log; returns the text for the window."""
+    import datetime
+    path = os.path.join(APP_DIR, "erros.log")
+    try:
+        os.makedirs(APP_DIR, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"\n=== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} v{__version__}\n{text}")
+    except OSError:
+        pass
+    return text + "\n" + t("err.crash", path=path)
+
+
+def _excepthook(kind, value, tb):
+    msg = log_crash("".join(traceback.format_exception(kind, value, tb)))
+    try:
+        QMessageBox.critical(None, t("app.title"), msg[-1500:])
+    except Exception:
+        pass
+
+
 def first_run():
     """Language + Terms. Returns False if the user refused. Also fixes the folder-name language on first use."""
     set_lang(config.get("idioma") or system_lang())
@@ -501,6 +524,7 @@ def first_run():
 
 
 def main():
+    sys.excepthook = _excepthook  # errors outside the worker (UI code) are logged, not silent
     app = QApplication(sys.argv)
     app.setStyleSheet(QSS)
     app.setWindowIcon(QIcon(ICON))

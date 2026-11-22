@@ -189,6 +189,10 @@ S = {
     "err.archive_many": {"pt": "demasiados ficheiros no pack ({n}) — não extraído", "en": "too many files in the archive ({n}) — not extracted"},
     "err.archive_bomb": {"pt": "pack suspeito (compressão exagerada) — não extraído", "en": "suspicious archive (extreme compression) — not extracted"},
     "err.no_space": {"pt": "sem espaço no disco para extrair ({gb} GB)", "en": "not enough disk space to extract ({gb} GB)"},
+    "err.busy": {"pt": "Esta biblioteca já está a ser organizada noutra janela do Cratekeeper.",
+                 "en": "This library is already being organized in another Cratekeeper window."},
+    "err.crash": {"pt": "Ocorreu um erro inesperado. Os detalhes ficaram em:\n{path}",
+                  "en": "An unexpected error occurred. Details were saved to:\n{path}"},
     "err.online_skipped": {"pt": "Procura online saltada: sem chaves do Discogs/Last.fm e MusicBrainz desligado.",
                            "en": "Online lookup skipped: no Discogs/Last.fm keys and MusicBrainz is off."},
     # terms

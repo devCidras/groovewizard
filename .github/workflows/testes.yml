@@ -1,0 +1,14 @@
+name: testes
+on:
+  push:
+  pull_request:
+jobs:
+  testes:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install mutagen Send2Trash
+      - run: python tests/test_pipeline.py
