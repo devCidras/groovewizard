@@ -449,12 +449,12 @@ class Window(QMainWindow):
         self._update_info = info
         self.upd_label.setText(t("upd.available", v=info["version"]))
         self.upd_btn.setEnabled(True)
-        self.upd_btn.setText(t("upd.install") if info.get("installer") else t("upd.open_page"))
+        self.upd_btn.setText(t("upd.install") if info.get("installer") and info.get("sha256") else t("upd.open_page"))
         self.banner.show()
 
     def _start_update(self):
         info = self._update_info
-        if not info.get("installer"):
+        if not (info.get("installer") and info.get("sha256")):  # nothing to verify it with: let the user download it
             QDesktopServices.openUrl(info["page"])
             return
         if self.thread and self.thread.isRunning():
@@ -465,7 +465,7 @@ class Window(QMainWindow):
 
         def work():
             try:
-                path = atualizacoes.download(info["installer"],
+                path = atualizacoes.download(info["installer"], info["sha256"],
                                              lambda d, tot: self._update_progress.emit(int(d * 100 / tot) if tot else 0))
             except Exception:
                 path = ""

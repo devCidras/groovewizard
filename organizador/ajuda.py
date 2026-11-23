@@ -130,7 +130,7 @@ ABOUT = {
    Dados de géneros: Discogs, Last.fm e MusicBrainz.<br>
    Este programa não está associado ao rekordbox, Serato, Beatport, Discogs, Last.fm ou MusicBrainz.</p>
 <h3>Licença</h3>
-<p class="muted">MIT — podes usar, alterar e partilhar livremente.</p>
+<p class="muted">GPL-3.0 — podes usar, estudar, alterar e partilhar; versões alteradas que distribuas têm de manter o código aberto. Componentes de terceiros e as suas licenças: pasta <code>licencas</code> da instalação.</p>
 """,
     "en": """
 <h2>Cratekeeper</h2>
@@ -144,7 +144,7 @@ ABOUT = {
    Genre data: Discogs, Last.fm and MusicBrainz.<br>
    This program is not affiliated with rekordbox, Serato, Beatport, Discogs, Last.fm or MusicBrainz.</p>
 <h3>License</h3>
-<p class="muted">MIT — free to use, modify and share.</p>
+<p class="muted">GPL-3.0 — free to use, study, modify and share; modified versions you distribute must stay open source. Third-party components and their licenses: <code>licencas</code> folder of the installation.</p>
 """,
 }
 

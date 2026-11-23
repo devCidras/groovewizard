@@ -482,9 +482,9 @@ class Organizer:
     # ---------- duplicates ----------
 
     @staticmethod
-    def _score(path, dur):
-        # DJ preference: Extended Mix, then longest, then lossless, then bigger file
-        ext = bool(re.search(r"extended", os.path.basename(path), re.I))
+    def _score(path, dur, title=""):
+        # DJ preference: Extended Mix (file name or title tag), then longest, then lossless, then bigger file
+        ext = bool(re.search(r"extended", os.path.basename(path) + " " + (title or ""), re.I))
         try:
             size = os.path.getsize(path)
         except OSError:  # vanished during the run
@@ -514,7 +514,8 @@ class Organizer:
         out = []
         for v in groups.values():
             if len(v) > 1:
-                out += self._losers(sorted(v, key=lambda x: self._score(*x), reverse=True), infos)
+                ranked = sorted(v, key=lambda x: self._score(x[0], x[1], infos[x[0]]["title"]), reverse=True)
+                out += self._losers(ranked, infos)
         return out
 
     def step_dedupe(self):

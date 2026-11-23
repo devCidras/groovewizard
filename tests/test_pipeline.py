@@ -158,11 +158,12 @@ def test_update_versions():
     from organizador import atualizacoes as a
     assert a.newer("v1.0.10", "1.0.9") and a.newer("2.0.0", "1.9.9")
     assert not a.newer("v1.0.7", "1.0.7") and not a.newer("1.0.6", "1.0.7") and not a.newer("", "1.0.7")
-    try:
-        a.download("https://evil.example.com/x.exe")
-        raise AssertionError("downloads must come from GitHub only")
-    except ValueError:
-        pass
+    for url, sha in (("https://evil.example.com/x.exe", "0" * 64), ("https://github.com/x/setup.exe", None)):
+        try:
+            a.download(url, sha)
+            raise AssertionError("must refuse: not GitHub, or nothing to verify against")
+        except ValueError:
+            pass
 
 
 def test_versions_option():

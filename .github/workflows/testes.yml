@@ -21,7 +21,7 @@ jobs:
           Remove-Item cratekeeper-self-test.log
           exit 0
       - name: build exe
-        run: python -m PyInstaller --noconfirm --clean --windowed --name Cratekeeper --icon organizador\recursos\cratekeeper.ico --add-data "organizador\recursos;organizador\recursos" --exclude-module librosa --exclude-module numba --exclude-module scipy --exclude-module sklearn app.py
+        run: python -m PyInstaller --noconfirm --clean --windowed --name Cratekeeper --icon organizador\recursos\cratekeeper.ico --add-data "organizador\recursos;organizador\recursos" --exclude-module librosa --exclude-module numba --exclude-module scipy --exclude-module sklearn --exclude-module PySide6.QtNetwork --exclude-module PySide6.QtQml --exclude-module PySide6.QtQuick --exclude-module PySide6.QtPdf --exclude-module PySide6.QtOpenGL --exclude-module PySide6.QtVirtualKeyboard app.py
       - name: packaged app starts
         shell: pwsh
         run: |

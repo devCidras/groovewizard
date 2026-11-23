@@ -1,7 +1,8 @@
 """User settings in %APPDATA%\\Cratekeeper\\config.json (folder, API keys, options, language, accepted terms).
 
-API keys are encrypted with Windows DPAPI (only this user on this PC can read them).
-Never in the repo, never sent anywhere.
+API keys are encrypted with Windows DPAPI when available (only this Windows user on this PC can read them); if DPAPI
+fails they are stored as plain text. They never go into the repo and are only sent to their own service (Discogs /
+Last.fm) when looking up genres or pressing Check.
 """
 import base64
 import ctypes

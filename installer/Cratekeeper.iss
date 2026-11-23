@@ -1,7 +1,7 @@
 ; Instalador Windows (Inno Setup 6). Gerado por build.ps1 depois do PyInstaller.
 #define AppName "Cratekeeper"
 #ifndef AppVersion
-  #define AppVersion "1.0.10"
+  #define AppVersion "1.1.0"
 #endif
 
 [Setup]
@@ -33,8 +33,8 @@ Name: "en"; MessagesFile: "compiler:Default.isl"; LicenseFile: "build\termos_en.
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
+; dist\Cratekeeper already holds LICENSE.txt (GPL-3.0) and licencas\ (third-party licenses + source offer)
 Source: "..\dist\Cratekeeper\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\Cratekeeper.exe"
