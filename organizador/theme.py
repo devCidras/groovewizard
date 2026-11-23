@@ -26,6 +26,7 @@ QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; border:
 QFrame#banner {{ background: {C['secondary']}; border-radius: 12px; }}
 QFrame#banner QLabel {{ font-weight: 600; }}
 QFrame#banner QPushButton#ghost {{ color: #E0E7FF; }}
+QLabel#shutLabel {{ font-weight: 600; font-size: 13px; }}
 QFrame#card {{ background: {C['card']}; border: 1px solid {C['border']}; border-radius: 12px; }}
 QLabel#title {{ font-size: 22px; font-weight: 700; }}
 QLabel#subtitle {{ color: {C['fg_muted']}; font-size: 14px; }}

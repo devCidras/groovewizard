@@ -123,6 +123,7 @@ S = {
     "upd.downloading": {"pt": 'A descarregar… {pct}%', "en": 'Downloading… {pct}%'},
     "upd.busy": {"pt": 'Espera que a organização termine antes de atualizar.', "en": 'Wait for the current run to finish before updating.'},
     "upd.failed": {"pt": 'Não foi possível descarregar a atualização. Abri a página para a descarregares à mão.', "en": 'Could not download the update. I opened the page so you can download it yourself.'},
+    "shut.short": {"pt": "Desligar PC\nno fim", "en": "Shut down\nwhen done"},
     "shut.toggle": {"pt": 'Desligar o PC no fim', "en": 'Shut down the PC when done'},
     "shut.tip": {"pt": 'Quando o Organizar terminar, o Windows desliga-se (fecha as outras apps sem perguntar). 60 s para cancelar.', "en": 'When Organize finishes, Windows shuts down (other apps are closed without asking). 60 s to cancel.'},
     "shut.confirm": {"pt": 'No fim da organização o PC desliga-se e fecha as outras apps sem perguntar — trabalho não guardado nelas perde-se.\n\nAtivar?', "en": 'When the run ends the PC shuts down and closes other apps without asking — unsaved work in them is lost.\n\nTurn on?'},

@@ -346,19 +346,20 @@ class Window(QMainWindow):
         for b in (self.btn_run, self.btn_preview, self.btn_cancel):
             btns.addWidget(b)
         btns.addStretch()
-        lay.addLayout(btns)
-        self.btn_purge = QPushButton(t("btn.purge"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.purge_tip"))
-        self.btn_purge.clicked.connect(self.purge)
-        extra = QHBoxLayout()  # secondary actions on their own row: never squeezed by the main buttons
-        # per session on purpose: never shuts the PC down because it was left on from last time
+        # next to the main buttons so it is seen; per session on purpose: never shuts the PC down
+        # because it was left on from last time
         self.shutdown_toggle = Toggle(False)
         self.shutdown_toggle.setAccessibleName(t("shut.toggle"))
         self.shutdown_toggle.setToolTip(t("shut.tip"))
         self.shutdown_toggle.toggled.connect(self._shutdown_armed)
-        shut_label = QLabel(t("shut.toggle"), objectName="stepDesc")
+        shut_label = QLabel(t("shut.short"), objectName="shutLabel", toolTip=t("shut.tip"))
         shut_label.setBuddy(self.shutdown_toggle)
-        extra.addWidget(self.shutdown_toggle)
-        extra.addWidget(shut_label)
+        btns.addWidget(self.shutdown_toggle)
+        btns.addWidget(shut_label)
+        lay.addLayout(btns)
+        self.btn_purge = QPushButton(t("btn.purge"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.purge_tip"))
+        self.btn_purge.clicked.connect(self.purge)
+        extra = QHBoxLayout()  # secondary actions on their own row: never squeezed by the main buttons
         extra.addStretch()
         extra.addWidget(self.btn_purge)
         extra.addWidget(self.btn_undo)
