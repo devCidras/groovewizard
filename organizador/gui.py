@@ -5,7 +5,7 @@ import threading
 import traceback
 
 from PySide6.QtCore import QObject, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QThread, QTimer, Signal, Property
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
@@ -18,7 +18,7 @@ from .theme import C, QSS
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
-EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "musicbrainz", "delete_archives"]
+EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "musicbrainz", "delete_archives", "check_updates"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper-icone.png")  # symbol without tile: reads bigger
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper-simbolo.png")  # no tile: sits on the dark header
 
@@ -200,6 +200,9 @@ class Worker(QObject):
 
 class Window(QMainWindow):
     _key_result = Signal(str, str, str)  # service, result, detail
+    _update_found = Signal(object)  # dict from atualizacoes.check(), or None
+    _update_progress = Signal(int)
+    _update_ready = Signal(str)  # downloaded installer path, or "" on failure
 
     def __init__(self):
         super().__init__()
@@ -209,6 +212,10 @@ class Window(QMainWindow):
         self.thread = None
         self._key_ui = {}
         self._key_result.connect(self._show_key_result)  # once: results come back to the UI thread
+        self._update_info = None
+        self._update_found.connect(self._show_update)
+        self._update_progress.connect(lambda pct: self.upd_btn.setText(t("upd.downloading", pct=pct)))
+        self._update_ready.connect(self._run_installer)
         self.build()
         QShortcut(QKeySequence("F1"), self, self.show_help)
 
@@ -245,6 +252,22 @@ class Window(QMainWindow):
         head.addWidget(self.lang_combo, 0, Qt.AlignTop)
         head.addWidget(QLabel(f"v{__version__}", objectName="badge"), 0, Qt.AlignTop)
         outer.addLayout(head)
+
+        self.banner = QFrame(objectName="banner")
+        bl = QHBoxLayout(self.banner)
+        bl.setContentsMargins(16, 10, 12, 10)
+        self.upd_label = QLabel()
+        self.upd_btn = QPushButton(t("upd.install"), objectName="primary", cursor=Qt.PointingHandCursor)
+        self.upd_btn.clicked.connect(self._start_update)
+        later = QPushButton(t("upd.later"), objectName="ghost", cursor=Qt.PointingHandCursor)
+        later.clicked.connect(self.banner.hide)
+        bl.addWidget(self.upd_label, 1)
+        bl.addWidget(later)
+        bl.addWidget(self.upd_btn)
+        self.banner.hide()
+        outer.addWidget(self.banner)
+        if self._update_info:  # rebuilt after a language change
+            self._show_update(self._update_info)
 
         cols = QHBoxLayout()
         cols.setSpacing(20)
@@ -403,6 +426,53 @@ class Window(QMainWindow):
         lay.addLayout(row)
         lay.addWidget(status)
         return e
+
+    # ---------- updates ----------
+
+    def look_for_update(self):
+        from . import atualizacoes
+        threading.Thread(target=lambda: self._update_found.emit(atualizacoes.check()), daemon=True).start()
+
+    def _show_update(self, info):
+        if not info:
+            return
+        self._update_info = info
+        self.upd_label.setText(t("upd.available", v=info["version"]))
+        self.upd_btn.setEnabled(True)
+        self.upd_btn.setText(t("upd.install") if info.get("installer") else t("upd.open_page"))
+        self.banner.show()
+
+    def _start_update(self):
+        info = self._update_info
+        if not info.get("installer"):
+            QDesktopServices.openUrl(info["page"])
+            return
+        if self.thread and self.thread.isRunning():
+            QMessageBox.information(self, t("app.title"), t("upd.busy"))
+            return
+        from . import atualizacoes
+        self.upd_btn.setEnabled(False)
+
+        def work():
+            try:
+                path = atualizacoes.download(info["installer"],
+                                             lambda d, tot: self._update_progress.emit(int(d * 100 / tot) if tot else 0))
+            except Exception:
+                path = ""
+            self._update_ready.emit(path)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _run_installer(self, path):
+        if not path:
+            self.upd_btn.setEnabled(True)
+            self.upd_btn.setText(t("upd.install"))
+            QMessageBox.warning(self, t("app.title"), t("upd.failed"))
+            QDesktopServices.openUrl(self._update_info["page"])
+            return
+        self.current()  # keep settings
+        os.startfile(path)  # the installer replaces this version; the app closes so its files are free
+        QApplication.quit()
 
     def check_key(self, service, edit):
         """Asks the service in the background; the window never freezes on a slow network."""
@@ -661,4 +731,6 @@ def main():
         sys.exit(0)
     w = Window()
     w.show()
+    if config.load()[0].check_updates:
+        w.look_for_update()
     sys.exit(app.exec())

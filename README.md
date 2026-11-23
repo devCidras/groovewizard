@@ -51,6 +51,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 - As chaves ficam em `%APPDATA%\Cratekeeper\config.json`, encriptadas com o Windows (só o teu utilizador neste PC as lê).
 - Caches, registos e o histórico para desfazer ficam em `%APPDATA%\Cratekeeper\bibliotecas\` — **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+.
 - Na procura online só é enviado o artista e o título das faixas, e só para o Discogs/Last.fm/MusicBrainz. Nada é enviado aos autores.
+- Ao abrir, a app pergunta ao GitHub se há uma versão nova e mostra um botão **Atualizar** (desliga-se nas opções).
 
 ## Para programadores
 

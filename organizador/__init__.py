@@ -1,2 +1,2 @@
 """Cratekeeper: sorts a DJ music library by genre."""
-__version__ = "1.0.7"
+__version__ = "1.0.8"

@@ -154,6 +154,17 @@ def test_duplicate_rules():
     assert losers == [radio], losers  # radio edit goes, extended stays, the remix is another track
 
 
+def test_update_versions():
+    from organizador import atualizacoes as a
+    assert a.newer("v1.0.10", "1.0.9") and a.newer("2.0.0", "1.9.9")
+    assert not a.newer("v1.0.7", "1.0.7") and not a.newer("1.0.6", "1.0.7") and not a.newer("", "1.0.7")
+    try:
+        a.download("https://evil.example.com/x.exe")
+        raise AssertionError("downloads must come from GitHub only")
+    except ValueError:
+        pass
+
+
 def test_versions_option():
     assert title_key("Song (Radio Edit)") == title_key("Song (Extended Mix)")
     assert title_key("Song (Radio Edit)", False) != title_key("Song (Extended Mix)", False)
@@ -165,6 +176,7 @@ if __name__ == "__main__":
         test_rules()
         test_guards()
         test_versions_option()
+        test_update_versions()
         test_duplicate_rules()
         test_lock()
         test_full_run_and_undo()

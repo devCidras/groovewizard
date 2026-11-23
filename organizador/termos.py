@@ -1,6 +1,6 @@
 """Terms and Conditions shown in the installer and on first run. Bump VERSION when the text changes (asks again)."""
 
-VERSION = "3"
+VERSION = "4"
 
 TERMS = {
     "pt": """TERMOS E CONDIÇÕES DE UTILIZAÇÃO — Cratekeeper
@@ -18,7 +18,7 @@ O programa é fornecido "tal como está", sem garantias de qualquer tipo, nos te
 Se ativares a procura online, o programa envia o nome do artista e o título das faixas para o Discogs, o Last.fm e/ou o MusicBrainz, e fica sujeito aos termos desses serviços. As chaves de API são tuas, ficam guardadas apenas neste computador e não são enviadas aos autores.
 
 5. Privacidade
-O programa não recolhe nem envia dados para os autores. Definições, chaves, caches e registos ficam em %APPDATA%\\Cratekeeper no teu computador.
+O programa não recolhe nem envia dados para os autores. Ao abrir, pergunta ao GitHub se há uma versão nova (podes desligar isto nas opções). Definições, chaves, caches e registos ficam em %APPDATA%\\Cratekeeper no teu computador.
 
 6. Direitos sobre a música
 O programa não descarrega nem distribui música. És responsável por teres o direito de usar os ficheiros que organizas.
@@ -46,7 +46,7 @@ The program is provided "as is", without warranty of any kind, under the MIT lic
 If you enable the online lookup, the program sends track artist and title to Discogs, Last.fm and/or MusicBrainz and is subject to those services' terms. API keys are yours, are stored only on this computer and are never sent to the authors.
 
 5. Privacy
-The program does not collect or send any data to the authors. Settings, keys, caches and logs are kept in %APPDATA%\\Cratekeeper on your computer.
+The program does not collect or send any data to the authors. On start-up it asks GitHub whether a new version exists (you can turn this off in the options). Settings, keys, caches and logs are kept in %APPDATA%\\Cratekeeper on your computer.
 
 6. Music rights
 The program does not download or distribute music. You are responsible for having the right to use the files you organize.
