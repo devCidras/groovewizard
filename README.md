@@ -57,7 +57,7 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 4. (Recomendado) cola as chaves grátis e carrega em **Verificar**:
    - Discogs: <https://www.discogs.com/settings/developers> → *Generate new token*
    - Last.fm: <https://www.last.fm/api/account/create> (só precisas da *API key*)
-5. **Fecha o rekordbox/Serato**, carrega em **Pré-visualizar** e depois em **Organizar**. Para deixar a correr de noite, liga **Desligar PC no fim**: quando acabar, o PC desliga-se (com 60 s para cancelar).
+5. **Fecha o rekordbox/Serato**, carrega em **Pré-visualizar** e depois em **Organizar**. Para deixar a correr de noite, liga **Desligar PC no fim**: se a organização terminar sem erros, o PC desliga-se (com 60 s para cancelar). Se houver um erro ou cancelares, fica ligado.
 6. No rekordbox: *Ficheiro → Gerir faixas inexistentes → Auto Relocate* (escolhe a pasta), depois *Recarregar tag*.
 
 Ajuda completa dentro da app (botão **Ajuda** ou F1).
@@ -117,7 +117,7 @@ python app.py
 - Medir o BPM no áudio das faixas sem BPM na tag: `pip install librosa` (opcional; não vai no instalador).
 - Gerar o `.exe` e o instalador: `powershell -File build.ps1` → `dist\GrooveWizard\` e `dist\GrooveWizard-<versão>-setup.exe` (precisa do [Inno Setup 6](https://jrsoftware.org/isinfo.php)).
 - Géneros, sinónimos de tags ("Afro House" → House), regras pelo nome dos packs e pastas-mãe: [`organizador/regras.py`](organizador/regras.py). Textos da interface (PT/EN): [`organizador/i18n.py`](organizador/i18n.py).
-- Problemas e sugestões: abre uma [issue](../../issues). Problemas de segurança: abre uma issue sem detalhes e pede contacto privado.
+- Problemas e sugestões: abre uma [issue](../../issues). Problemas de segurança: reporta em privado em [Security → Report a vulnerability](../../security/advisories/new), não numa issue pública.
 
 ---
 
@@ -132,13 +132,13 @@ python app.py
 
 **Safeguards:** Preview changes nothing (it cannot predict tracks still inside packs, online results or site cleaning). Undo last run tries to restore files, original tags and pack extraction, and lists anything it could not restore (deleted, changed by hand, emptied from quarantine, name taken). Removed files go to a hidden `_quarentena` folder; after 30 days they are sent to the Recycle Bin on the next run, or at once with *Empty quarantine*. Tags are written to a verified copy first; files mutagen cannot open at all are never moved or edited. Folders left empty are removed at the end. Dangerous folders are refused; two windows cannot organize the same library.
 
-**Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check**, close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
+**Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check**, close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*: the PC shuts down (60 s to cancel) only if the run finishes without errors. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
 
 **Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics: review the preview and the quarantine. The installer reads BPM from tags only. Uninstalling keeps `%APPDATA%\GrooveWizard`.
 
 **Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. At start-up the app asks GitHub for the latest version (GitHub sees your IP; always on, so every new version is announced). Caches, logs and undo history live in `%APPDATA%\GrooveWizard`, outside the music folder; crashes are written to `%APPDATA%\GrooveWizard\erros.log`. The SHA-256 in each release proves integrity (the file is the one published), not authorship: the installer is unsigned, so download only from this repository's Releases. Nothing is sent to the authors.
 
-**From source:** `pip install -r requirements.txt && python app.py`. Tests: `python tests/test_pipeline.py`.
+**From source:** `pip install -r requirements.txt && python app.py`. Tests: `python tests/test_pipeline.py`. Bugs and ideas: open an [issue](../../issues). Security problems: report privately via [Security → Report a vulnerability](../../security/advisories/new), not in a public issue.
 
 ## Licença / License
 

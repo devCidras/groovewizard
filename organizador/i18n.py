@@ -101,7 +101,7 @@ S = {
     "btn.preview_tip": {"pt": "Mostra o que ia mudar, sem mexer em nada.", "en": "Shows what would change, without touching anything."},
     "btn.cancel": {"pt": "Cancelar", "en": "Cancel"},
     "btn.undo": {"pt": "Desfazer última", "en": "Undo last run"},
-    "btn.undo_tip": {"pt": "Devolve os ficheiros movidos na última vez.", "en": "Moves back the files moved in the last run."},
+    "btn.undo_tip": {"pt": "Tenta repor a última execução: ficheiros, tags originais e extração dos packs.", "en": "Tries to revert the last run: files, original tags and pack extraction."},
     "btn.purge": {"pt": "Esvaziar quarentena", "en": "Empty quarantine"},
     "btn.purge_tip": {"pt": "Repetidas e lixo removidos ficam 30 dias em _quarentena; isto envia-os já para a Reciclagem.",
                       "en": "Removed duplicates and junk stay 30 days in _quarentena; this sends them to the Recycle Bin now."},
