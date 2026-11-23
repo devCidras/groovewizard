@@ -13,6 +13,34 @@ from .tags import norm
 UA = "Cratekeeper/0.1 (+https://github.com)"
 
 
+def check_key(service, key, timeout=15):
+    """-> ("ok", detail) | ("invalid", "") | ("offline", error). One small request, nothing is cached."""
+    key = (key or "").strip()
+    if not key:
+        return "invalid", ""
+    if service == "discogs":
+        req = urllib.request.Request("https://api.discogs.com/oauth/identity",
+                                     headers={"User-Agent": UA, "Authorization": f"Discogs token={key}"})
+    else:
+        q = urllib.parse.urlencode({"method": "artist.getinfo", "artist": "Daft Punk", "api_key": key, "format": "json"})
+        req = urllib.request.Request("https://ws.audioscrobbler.com/2.0/?" + q, headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):  # Discogs: bad token; Last.fm answers 403 for an invalid key
+            return "invalid", ""
+        try:
+            data = json.load(e)
+        except Exception:
+            return "offline", f"HTTP {e.code}"
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return "offline", str(getattr(e, "reason", e))
+    if service == "lastfm" and data.get("error"):
+        return ("invalid", "") if data["error"] in (10, 26) else ("offline", data.get("message", ""))
+    return "ok", data.get("username", "") if service == "discogs" else ""
+
+
 def folder_for(tag):
     """Online tag -> (folder, priority) or (None, None). 'electronic' is too generic to mean anything."""
     n = tag.lower()

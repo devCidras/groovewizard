@@ -108,6 +108,12 @@ S = {
     "msg.purge_confirm": {"pt": "Enviar tudo o que está na quarentena para a Reciclagem?\nDepois disto o Desfazer já não recupera essas faixas.",
                           "en": "Send everything in quarantine to the Recycle Bin?\nUndo will no longer bring those files back."},
     "log.kind.purge": {"pt": "Esvaziar quarentena", "en": "Empty quarantine"},
+    "btn.check": {"pt": 'Verificar', "en": 'Check'},
+    "btn.check_tip": {"pt": 'Testa a chave agora (um pedido ao serviço).', "en": 'Tests the key now (one request to the service).'},
+    "key.checking": {"pt": 'A verificar…', "en": 'Checking…'},
+    "key.ok": {"pt": '✓ Válida {detail}', "en": '✓ Valid {detail}'},
+    "key.invalid": {"pt": '✗ Inválida — confirma que copiaste a chave toda', "en": '✗ Invalid — check you copied the whole key'},
+    "key.offline": {"pt": 'Sem resposta do serviço (internet?) {detail}', "en": 'No answer from the service (internet?) {detail}'},
     "btn.close": {"pt": "Fechar", "en": "Close"},
     # status
     "status.ready": {"pt": "Pronto.", "en": "Ready."},

@@ -4,8 +4,8 @@ import sys
 import threading
 import traceback
 
-from PySide6.QtCore import QObject, QPropertyAnimation, QRectF, QSize, Qt, QThread, Signal, Property
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtCore import QObject, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QThread, QTimer, Signal, Property
+from PySide6.QtGui import QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
@@ -89,8 +89,62 @@ def card(title=None, subtitle=None):
     return f, lay
 
 
+class StatusIcon(QWidget):
+    """Step state: grey ring (waiting), spinning arc (running), green check (done), red cross (error)."""
+    SIZE = 18
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.state, self.angle = "waiting", 0
+        self.timer = QTimer(self, interval=16)  # ~60 fps while running, stopped otherwise
+        self.timer.timeout.connect(self._spin)
+
+    def _spin(self):
+        self.angle = (self.angle - 8) % 360
+        self.update()
+
+    def set(self, state):
+        self.state = state
+        if state == "running":
+            self.timer.start()
+        else:
+            self.timer.stop()
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(2, 2, self.SIZE - 4, self.SIZE - 4)
+        if self.state in ("waiting", "off"):
+            p.setPen(QPen(QColor(C["muted"] if self.state == "waiting" else "#2E2E45"), 2))
+            p.drawEllipse(r)
+        elif self.state == "running":
+            p.setPen(QPen(QColor(C["muted"]), 2))
+            p.drawEllipse(r)
+            pen = QPen(QColor("#818CF8"), 2.5)  # lighter indigo: visible on the dark card
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
+            p.drawArc(r, self.angle * 16, 100 * 16)  # a 100 degree arc going round
+        else:
+            done = self.state == "done"
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(C["accent"] if done else C["danger"]))
+            p.drawEllipse(r)
+            pen = QPen(QColor(C["on_accent"] if done else "#FFFFFF"), 2)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
+            c = self.SIZE / 2
+            if done:  # check mark
+                p.drawLine(QPointF(c - 4, c), QPointF(c - 1, c + 3))
+                p.drawLine(QPointF(c - 1, c + 3), QPointF(c + 4, c - 3))
+            else:  # cross
+                p.drawLine(QPointF(c - 3, c - 3), QPointF(c + 3, c + 3))
+                p.drawLine(QPointF(c + 3, c - 3), QPointF(c - 3, c + 3))
+
+
 class StepRow(QWidget):
-    """Status dot + title + live counter."""
+    """Status icon + title + live counter."""
     COLORS = {"waiting": C["muted"], "running": C["secondary_hover"], "done": C["accent"], "off": "#3A3A55",
               "error": C["danger"]}
 
@@ -98,7 +152,7 @@ class StepRow(QWidget):
         super().__init__()
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 4, 0, 4)
-        self.dot = QLabel(fixedSize=QSize(12, 12))
+        self.dot = StatusIcon()
         self.title = QLabel(title)
         self.state = QLabel(objectName="hint")
         self.current = "waiting"
@@ -110,7 +164,7 @@ class StepRow(QWidget):
 
     def set(self, state, text=None):
         self.current = state
-        self.dot.setStyleSheet(f"background:{self.COLORS[state]}; border-radius:6px;")
+        self.dot.set(state)
         self.title.setStyleSheet(f"color:{C['fg'] if state != 'off' else '#5B6478'};"
                                  f"font-weight:{600 if state == 'running' else 400};")
         self.state.setText(text if text is not None else t("state." + state))
@@ -145,12 +199,16 @@ class Worker(QObject):
 
 
 class Window(QMainWindow):
+    _key_result = Signal(str, str, str)  # service, result, detail
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(t("app.title"))
         self.resize(1080, 760)
         self.setMinimumSize(900, 620)
         self.thread = None
+        self._key_ui = {}
+        self._key_result.connect(self._show_key_result)  # once: results come back to the UI thread
         self.build()
         QShortcut(QKeySequence("F1"), self, self.show_help)
 
@@ -213,8 +271,8 @@ class Window(QMainWindow):
         c, lay = card(t("card.online"), t("card.online_hint",
                       discogs=link.format(c=C["accent"], h="https://www.discogs.com/settings/developers", x=t("link.discogs")),
                       lastfm=link.format(c=C["accent"], h="https://www.last.fm/api/account/create", x=t("link.lastfm"))))
-        self.discogs = self._secret(lay, "Discogs token", keys.get("discogs_token", ""))
-        self.lastfm = self._secret(lay, "Last.fm API key", keys.get("lastfm_api_key", ""))
+        self.discogs = self._secret(lay, "Discogs token", keys.get("discogs_token", ""), "discogs")
+        self.lastfm = self._secret(lay, "Last.fm API key", keys.get("lastfm_api_key", ""), "lastfm")
         ll.addWidget(c)
 
         c, lay = card(t("card.steps"))
@@ -326,7 +384,7 @@ class Window(QMainWindow):
 
     # ---------- building blocks ----------
 
-    def _secret(self, lay, label, value):
+    def _secret(self, lay, label, value, service):
         lay.addWidget(QLabel(label, objectName="stepDesc"))
         row = QHBoxLayout()
         e = QLineEdit(value, echoMode=QLineEdit.Password)
@@ -334,10 +392,38 @@ class Window(QMainWindow):
         show = QPushButton(t("btn.show"), objectName="ghost", cursor=Qt.PointingHandCursor, checkable=True)
         show.toggled.connect(lambda on: (e.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password),
                                          show.setText(t("btn.hide") if on else t("btn.show"))))
+        check = QPushButton(t("btn.check"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.check_tip"))
+        status = QLabel(objectName="hint")
+        self._key_ui[service] = (check, status)
+        check.clicked.connect(lambda: self.check_key(service, e))
+        e.textChanged.connect(lambda _: status.setText(""))  # a different key: old result no longer applies
         row.addWidget(e, 1)
         row.addWidget(show)
+        row.addWidget(check)
         lay.addLayout(row)
+        lay.addWidget(status)
         return e
+
+    def check_key(self, service, edit):
+        """Asks the service in the background; the window never freezes on a slow network."""
+        from .online import check_key
+        button, status = self._key_ui[service]
+        button.setEnabled(False)
+        status.setStyleSheet("")
+        status.setText(t("key.checking"))
+        key = edit.text()
+        threading.Thread(target=lambda: self._key_result.emit(service, *check_key(service, key)), daemon=True).start()
+
+    def _show_key_result(self, service, result, detail):
+        if service not in self._key_ui:
+            return
+        button, status = self._key_ui[service]
+        button.setEnabled(True)
+        color = {"ok": C["accent"], "invalid": C["danger"]}.get(result, C["warn"])
+        status.setStyleSheet(f"color:{color};")
+        status.setText(t("key." + result, detail=detail).strip())
+        if result == "ok":
+            self.current()  # save the key that works
 
     def _option(self, lay, field, checked):
         row = QHBoxLayout()
