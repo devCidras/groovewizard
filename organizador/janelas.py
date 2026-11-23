@@ -84,7 +84,19 @@ class PlanDialog(QDialog):
         self._timer = QTimer(self, singleShot=True, interval=200)  # filter after typing stops: 16k rows
         self._timer.timeout.connect(self._filter)
         self.search.textChanged.connect(lambda _: self._timer.start())
-        self.table.itemChanged.connect(lambda _: self._update_count())
+        self.rows_of = {}  # path -> its rows (a track can have several actions): ticked/unticked together
+        for i, p in enumerate(self.paths):
+            self.rows_of.setdefault(p, []).append(i)
+        self.table.itemChanged.connect(self._changed)
+        self._update_count()
+
+    def _changed(self, item):
+        if item.column() != 0:
+            return
+        self.table.blockSignals(True)
+        for i in self.rows_of[self.paths[item.row()]]:
+            self.table.item(i, 0).setCheckState(item.checkState())
+        self.table.blockSignals(False)
         self._update_count()
 
     def _filter(self):
@@ -97,14 +109,15 @@ class PlanDialog(QDialog):
         self.table.blockSignals(True)
         for i in range(self.table.rowCount()):
             if not self.table.isRowHidden(i):
-                self.table.item(i, 0).setCheckState(state)
+                for j in self.rows_of[self.paths[i]]:  # the track's other rows too, even if filtered out
+                    self.table.item(j, 0).setCheckState(state)
         self.table.blockSignals(False)
         self._update_count()
 
     def _update_count(self):
-        n = self.table.rowCount()
-        on = sum(1 for i in range(n) if self.table.item(i, 0).checkState() == Qt.Checked)
-        self.count.setText(t("plan.count", on=on, n=n))
+        """Counted in tracks, not rows."""
+        off = set(self.skipped())
+        self.count.setText(t("plan.count", on=len(self.rows_of) - len(off), n=len(self.rows_of)))
 
     def skipped(self):
         """Files with any row unticked: left exactly as they are in the run."""

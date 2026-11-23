@@ -2,7 +2,6 @@
 import os
 import sys
 import threading
-import time
 import traceback
 from dataclasses import asdict
 
@@ -205,12 +204,13 @@ class Worker(QObject):
         emit = lambda step, i, n, msg="": self.progress.emit(step, i, n, msg)
         try:
             if self.kind == "undo":
-                rep, errs = undo_until(self.opts.root, self.extra["until"], emit, self.cancel, self.opts.protected)
+                rep, errs = undo_until(self.opts.root, self.extra["until"], emit, self.cancel, self.opts.protected,
+                                       self.extra.get("newest"))
             elif self.kind == "purge":
                 rep, errs = {"purged": purge_quarantine(self.opts.root)}, []  # takes the library lock
             elif self.kind == "report":
                 org = Organizer(self.opts, self.keys, emit, self.cancel)
-                path = os.path.join(org.data, f"relatorio-{time.strftime('%Y%m%d-%H%M%S')}.csv")
+                path = os.path.join(org.data, f"relatorio-{org.run_id}.csv")  # unique: never overwrites an older one
                 with library_lock(self.opts.root):  # no run moving files while it reads them
                     rep, errs = library_report(org, path), []
                 self.report_path = path
@@ -715,7 +715,7 @@ class Window(QMainWindow):
         i = d.chosen()
         run_id = runs[i][0]
         if QMessageBox.question(self, t("history.title"), t("history.confirm", n=i + 1, date=run_date(run_id))) == QMessageBox.Yes:
-            self.start("undo", opts, keys, {"until": run_id})
+            self.start("undo", opts, keys, {"until": run_id, "newest": runs[0][0]})
 
     def show_plan(self):
         from .janelas import PlanDialog
@@ -725,8 +725,14 @@ class Window(QMainWindow):
             QMessageBox.information(self, t("plan.title"), t("plan.stale"))
             return
         d = PlanDialog(self._plan, opts.root, self)
-        if d.exec() == PlanDialog.Accepted:
-            self.start("run", opts, keys, {"skip": d.skipped()})
+        if d.exec() != PlanDialog.Accepted:
+            return
+        skip = d.skipped()
+        if any(not os.path.exists(p) for p in skip):  # renamed/moved since the Preview: it would no longer be left alone
+            self.btn_plan.hide()
+            QMessageBox.information(self, t("plan.title"), t("plan.stale"))
+            return
+        self.start("run", opts, keys, {"skip": skip})
 
     def do_cancel(self):
         self.cancel.set()

@@ -396,6 +396,18 @@ def test_undo_history_and_report():
     assert not errs, errs
     assert os.path.exists(a) and os.path.exists(b) and pl.list_runs(root) == []
     assert pl.undo_until(root, runs[1][0]) == (pl.Counter(), [])  # nothing left: does nothing
+    pl.Organizer(opts).run()
+    assert pl.undo_until(root, pl.list_runs(root)[0][0], newest_seen="outra") == (pl.Counter(), [pl.t("err.undo_changed")])
+    pl.undo_until(root, pl.list_runs(root)[0][0])
+    # preview: a track that is moved and gets its genre tag fixed shows both; a second preview does not double the list
+    multi = make(os.path.join(root, "M - Multi.wav"), 1, "M", "Multi", "Tech House, Deep House")
+    org = pl.Organizer(opts)
+    org.preview()
+    assert ("tags", multi, "Tech House") in org.plan and any(k == "move" and p == multi for k, p, _ in org.plan)
+    n = len(org.plan)
+    org.preview()
+    assert len(org.plan) == n
+    os.remove(multi)
 
     make(os.path.join(root, "Sem Tags.wav"), 1)
     short = make(os.path.join(root, "C - Short.wav"), 1, "C", "Short", "Techno")

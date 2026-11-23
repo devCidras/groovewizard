@@ -882,6 +882,7 @@ class Organizer:
         """Counts for the summary, and self.plan: one row per track that will change, for the review list
         ("move": new path, "rename_ask": new name if you say yes, "dup": the copy that stays, "tags": new genre)."""
         rep = Counter()
+        self.plan, self.dup_best = [], {}  # a second preview() on the same object starts clean
         if self.opts.extract:
             rep["archives_pending"] = len(self.pending_archives())
         self._fresh = self._new_tracks()
@@ -899,17 +900,22 @@ class Organizer:
             if not self.in_place(p, g) and self.left_alone(self.target_dir(g)):
                 rep["protected_target"] += 1  # Organize leaves it where it is
                 continue
+            dst = p
             if not self.in_place(p, g):
                 rep[f"to_move|{self.label(g)}"] += 1
                 if name:
                     rep["rename_pending"] += 1
-                self.plan.append(("move", p, os.path.join(self.target_dir(g), name or os.path.basename(p))))
+                dst = os.path.join(self.target_dir(g), name or os.path.basename(p))
+                self.plan.append(("move", p, dst))
             elif name:
                 rep["rename_pending"] += 1
-                self.plan.append(("move", p, os.path.join(os.path.dirname(p), name)))
-            elif self.opts.write_tags and self._genre_decision(p, info["genre"])[0] is not None:
+                dst = os.path.join(os.path.dirname(p), name)
+                self.plan.append(("move", p, dst))
+            # the tag step runs after the move, on the new place (decided from the path and the tag text only)
+            new_genre = self._genre_decision(dst, info["genre"])[0] if self.opts.write_tags else None
+            if new_genre is not None:
                 rep["tags_pending"] += 1
-                self.plan.append(("tags", p, self._genre_decision(p, info["genre"])[0]))
+                self.plan.append(("tags", p, new_genre))
             if p in outside:
                 self.plan.append(("rename_ask", p, outside[p]))
         rep["tracks"] = len(files)
@@ -1058,11 +1064,22 @@ def _move_back(src, dst, errors, retry):
         return False
 
 
+def _pending_logs(runs_dir):
+    """Run logs not undone yet, oldest first. By creation time, not by name: run ids carry the local time, which
+    jumps back an hour when summer time ends (the name breaks ties)."""
+    def key(f):
+        try:
+            return os.stat(os.path.join(runs_dir, f)).st_ctime_ns, f
+        except OSError:
+            return 0, f
+    return sorted((f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv")), key=key)
+
+
 def list_runs(root):
     """Runs that can still be undone, newest first: [(run_id, Counter of what each did)]."""
     d = os.path.join(data_dir_for(root), "execucoes")
     out = []
-    for f in sorted((f for f in os.listdir(d) if f.endswith(".csv") and not f.endswith(".desfeito.csv")), reverse=True):
+    for f in reversed(_pending_logs(d)):
         kinds = Counter()
         try:
             with open(os.path.join(d, f), encoding="utf-8", newline="") as fh:
@@ -1075,12 +1092,16 @@ def list_runs(root):
     return out
 
 
-def undo_until(root, run_id, progress=None, cancel=None, protected=()):
+def undo_until(root, run_id, progress=None, cancel=None, protected=(), newest_seen=None):
     """Undoes the runs from the newest back to run_id (included), one at a time: an older run can only be undone
     after the newer ones, or a file moved twice would go back to the wrong place. Stops at the first run that
-    could not be fully undone (it stays the newest, so trying again continues from there)."""
+    could not be fully undone (it stays the newest, so trying again continues from there).
+    newest_seen: the newest run the user saw when choosing; if another one finished since, nothing is undone."""
     with library_lock(root):
         rep, errors = Counter(), []
+        runs = list_runs(root)
+        if newest_seen and runs and runs[0][0] != newest_seen:
+            return rep, [t("err.undo_changed")]
         while True:
             pending = [r for r, _ in list_runs(root)]
             if run_id not in pending:
@@ -1139,7 +1160,7 @@ def _undo_last(root, progress, cancel, protected=()):
     progress = progress or (lambda *a: None)
     data = data_dir_for(root)
     runs_dir = os.path.join(data, "execucoes")
-    runs = sorted(f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv"))
+    runs = _pending_logs(runs_dir)
     if not runs:
         return Counter({"undo_nothing": 1}), []
     path = os.path.join(runs_dir, runs[-1])
