@@ -1,6 +1,6 @@
 """Real-data check (manual, not part of CI): copies a sample of a real library, runs everything, undoes, compares.
 
-Uso: python tests/teste_real.py D:\\musica D:\\cratekeeper-teste [N]
+Uso: python tests/teste_real.py D:\\musica D:\\groovewizard-teste [N]
 Never touches the source library: it only reads it to copy N tracks.
 Checks: no audio lost, audio data byte-identical (tags excluded), Undo restores paths and tags.
 """

@@ -19,8 +19,8 @@ from .theme import C, QSS
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
 EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "musicbrainz", "delete_archives", "check_updates"]
-ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper-icone.png")  # symbol without tile: reads bigger
-LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper-simbolo.png")  # no tile: sits on the dark header
+ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-icone.png")  # symbol without tile: reads bigger
+LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-simbolo.png")  # no tile: sits on the dark header
 
 
 def opt_key(field):
@@ -460,6 +460,9 @@ class Window(QMainWindow):
         if self.thread and self.thread.isRunning():
             QMessageBox.information(self, t("app.title"), t("upd.busy"))
             return
+        self._updating = True
+        self.busy(True)  # no Organize/Preview/Undo while the update downloads
+        self.btn_cancel.setEnabled(False)
         from . import atualizacoes
         self.upd_btn.setEnabled(False)
 
@@ -474,11 +477,16 @@ class Window(QMainWindow):
         threading.Thread(target=work, daemon=True).start()
 
     def _run_installer(self, path):
+        self._updating = False
+        self.busy(False)
         if not path:
             self.upd_btn.setEnabled(True)
             self.upd_btn.setText(t("upd.install"))
             QMessageBox.warning(self, t("app.title"), t("upd.failed"))
             QDesktopServices.openUrl(self._update_info["page"])
+            return
+        if self.thread and self.thread.isRunning():  # cannot happen (buttons were off), but never quit mid-run
+            QMessageBox.information(self, t("app.title"), t("upd.busy"))
             return
         self.current()  # keep settings
         os.startfile(path)  # the installer replaces this version; the app closes so its files are free
@@ -572,6 +580,8 @@ class Window(QMainWindow):
             r.set("waiting" if on else "off")
 
     def start(self, kind, opts=None, keys=None):
+        if getattr(self, "_updating", False):
+            return  # an update is downloading; the app will close for the installer
         if opts is None:
             opts, keys = self.current()
         if not os.path.isdir(opts.root):
@@ -697,8 +707,7 @@ class Window(QMainWindow):
             self.log.appendPlainText(t("log.preview_limits"))
 
     def on_failed(self, msg):
-        if msg != t("msg.cancelled"):  # stopped by an error: still shut down; cancelled by you: you're here
-            QTimer.singleShot(0, lambda: self._maybe_shutdown(self._last_kind))
+        # never shut down after an error or a cancel: only a run that finished (see on_finished)
         if self.current_row is not None:
             self.current_row.set("error")
         self.status.setText(t("status.stopped"))
@@ -728,7 +737,7 @@ class Window(QMainWindow):
 
 
 def log_crash(text):
-    """Appends a traceback to %APPDATA%\\Cratekeeper\\erros.log; returns the text for the window."""
+    """Appends a traceback to %APPDATA%\\GrooveWizard\\erros.log; returns the text for the window."""
     import datetime
     path = os.path.join(APP_DIR, "erros.log")
     try:

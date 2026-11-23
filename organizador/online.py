@@ -7,10 +7,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import __version__
 from .regras import ONLINE_RULES
 from .tags import norm
 
-UA = "Cratekeeper/0.1 (+https://github.com)"
+UA = f"GrooveWizard/{__version__} (+https://github.com/devCidras/groovewizard)"
 
 
 def check_key(service, key, timeout=15):

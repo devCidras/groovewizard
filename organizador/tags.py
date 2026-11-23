@@ -63,7 +63,8 @@ def normalize_genre(raw):
     first = first.replace("/", "-").replace("\\", "-")  # Beatport "Techno (Peak Time / Driving)"
     first = re.sub(r'[<>:"?*]', "", first)
     first = re.sub(r"\s+", " ", first).strip(" .").title()
-    return ALIAS.get(first, first) or None
+    g = ALIAS.get(first, first) or None
+    return None if g and g.startswith(("_", ".")) else g  # "_quarentena" etc. are the app's own folders
 
 
 def genre_of(path):

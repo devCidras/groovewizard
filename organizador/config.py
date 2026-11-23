@@ -1,4 +1,4 @@
-"""User settings in %APPDATA%\\Cratekeeper\\config.json (folder, API keys, options, language, accepted terms).
+"""User settings in %APPDATA%\\GrooveWizard\\config.json (folder, API keys, options, language, accepted terms).
 
 API keys are encrypted with Windows DPAPI when available (only this Windows user on this PC can read them); if DPAPI
 fails they are stored as plain text. They never go into the repo and are only sent to their own service (Discogs /

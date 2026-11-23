@@ -3,11 +3,11 @@ import sys
 
 def self_test():
     """CI / installer check: the (packaged) app starts and builds its window. Result also goes to
-    cratekeeper-self-test.log, because a windowed .exe has no console (sys.stdout is None)."""
+    groovewizard-self-test.log, because a windowed .exe has no console (sys.stdout is None)."""
     import os
     import traceback
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    log = os.path.join(os.getcwd(), "cratekeeper-self-test.log")
+    log = os.path.join(os.getcwd(), "groovewizard-self-test.log")
     try:
         from PySide6.QtWidgets import QApplication
         from organizador.gui import Window

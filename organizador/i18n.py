@@ -40,7 +40,7 @@ def system_lang():
 
 S = {
     # header
-    "app.title": {"pt": "Cratekeeper", "en": "Cratekeeper"},
+    "app.title": {"pt": "GrooveWizard", "en": "GrooveWizard"},
     "app.subtitle": {"pt": "Arruma a tua biblioteca por género, sem repetidas, com as tags limpas.",
                      "en": "Sorts your library by genre, without duplicates, with clean tags."},
     "btn.help": {"pt": "Ajuda", "en": "Help"},
@@ -116,7 +116,7 @@ S = {
     "key.offline": {"pt": 'Sem resposta do serviço (internet?) {detail}', "en": 'No answer from the service (internet?) {detail}'},
     "opt.check_updates": {"pt": 'Avisar quando houver uma versão nova', "en": 'Tell me when a new version is out'},
     "opt.check_updates_d": {"pt": 'Ao abrir, pergunta ao GitHub qual é a última versão (sem enviar dados teus).', "en": 'On start-up, asks GitHub for the latest version (no data of yours is sent).'},
-    "upd.available": {"pt": 'Há uma versão nova do Cratekeeper: {v}', "en": 'A new Cratekeeper version is available: {v}'},
+    "upd.available": {"pt": 'Há uma versão nova do GrooveWizard: {v}', "en": 'A new GrooveWizard version is available: {v}'},
     "upd.install": {"pt": 'Atualizar', "en": 'Update'},
     "upd.open_page": {"pt": 'Ver no GitHub', "en": 'Open on GitHub'},
     "upd.later": {"pt": 'Mais tarde', "en": 'Later'},
@@ -130,7 +130,7 @@ S = {
     "shut.countdown": {"pt": 'Organização terminada. O PC desliga-se em {s} s.', "en": 'Done. The PC shuts down in {s} s.'},
     "shut.cancel": {"pt": 'Cancelar e não desligar', "en": 'Cancel, keep it on'},
     "shut.cancelled": {"pt": 'Encerramento do PC cancelado.', "en": 'PC shutdown cancelled.'},
-    "shut.windows_msg": {"pt": 'Cratekeeper: organização terminada, o PC vai desligar.', "en": 'Cratekeeper: done, the PC will shut down.'},
+    "shut.windows_msg": {"pt": 'GrooveWizard: organização terminada, o PC vai desligar.', "en": 'GrooveWizard: done, the PC will shut down.'},
     "btn.close": {"pt": "Fechar", "en": "Close"},
     # status
     "status.ready": {"pt": "Pronto.", "en": "Ready."},
@@ -212,8 +212,8 @@ S = {
     "err.archive_many": {"pt": "demasiados ficheiros no pack ({n}) — não extraído", "en": "too many files in the archive ({n}) — not extracted"},
     "err.archive_bomb": {"pt": "pack suspeito (compressão exagerada) — não extraído", "en": "suspicious archive (extreme compression) — not extracted"},
     "err.no_space": {"pt": "sem espaço no disco para extrair ({gb} GB)", "en": "not enough disk space to extract ({gb} GB)"},
-    "err.busy": {"pt": "Esta biblioteca já está a ser organizada noutra janela do Cratekeeper.",
-                 "en": "This library is already being organized in another Cratekeeper window."},
+    "err.busy": {"pt": "Esta biblioteca já está a ser organizada noutra janela do GrooveWizard.",
+                 "en": "This library is already being organized in another GrooveWizard window."},
     "err.crash": {"pt": "Ocorreu um erro inesperado. Os detalhes ficaram em:\n{path}",
                   "en": "An unexpected error occurred. Details were saved to:\n{path}"},
     "err.unreadable": {"pt": "tags estragadas, ficou onde estava: {path}", "en": "damaged tags, left where it was: {path}"},
@@ -225,6 +225,7 @@ S = {
     "log.preview_limits": {"pt": 'Não incluído na pré-visualização: faixas ainda dentro dos packs, resultados da procura online e limpeza de sites nas tags.', "en": 'Not in the preview: tracks still inside packs, online lookup results and site cleaning in tags.'},
     "err.archive_list": {"pt": 'não foi possível ver o conteúdo do pack — não extraído', "en": 'could not list the archive contents — not extracted'},
     "err.tag_check": {"pt": 'a gravação das tags não passou na verificação — ficheiro original mantido', "en": 'the tag save failed verification — original file kept'},
+    "err.quarantine_taken": {"pt": "Já existe uma pasta {path} que não foi criada pela app. Muda-lhe o nome para a app poder usar a quarentena.", "en": "A folder {path} already exists and was not created by the app. Rename it so the app can use its quarantine."},
     "err.online_skipped": {"pt": "Procura online saltada: sem chaves do Discogs/Last.fm e MusicBrainz desligado.",
                            "en": "Online lookup skipped: no Discogs/Last.fm keys and MusicBrainz is off."},
     # terms

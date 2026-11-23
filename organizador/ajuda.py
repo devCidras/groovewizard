@@ -8,7 +8,7 @@ from .i18n import LANGS, lang, set_lang, t
 from .theme import C
 
 AUTHOR = "devCidras"
-REPO = "https://github.com/devCidras/cratekeeper"
+REPO = "https://github.com/devCidras/groovewizard"
 
 _CSS = f"""
 <style>
@@ -53,14 +53,15 @@ HELP = {
   <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.</li>
 </ul>
 <h3>Enganei-me, e agora?</h3>
-<p><b>Desfazer última</b> anula a última execução: devolve os ficheiros ao sítio onde estavam, tira da quarentena
+<p><b>Desfazer última</b> tenta anular a última execução: devolve os ficheiros ao sítio onde estavam, tira da quarentena
    as repetidas e o lixo removidos, repõe as tags originais (género, álbum, título…) e põe de lado o que foi
-   extraído dos packs (os packs ficam). Se algum ficheiro estiver aberto noutro programa, fecha-o e carrega outra vez.<br>
+   extraído dos packs (os packs ficam). O que não conseguir repor (apagado, mudado à mão, nome já ocupado) é
+   listado no fim. Se algum ficheiro estiver aberto noutro programa, fecha-o e carrega outra vez.<br>
    <b>Esvaziar quarentena</b> envia já para a Reciclagem o que está em quarentena — a partir daí o Desfazer
    já não recupera esses ficheiros.</p>
 <h3>Onde ficam os dados</h3>
-<p class="muted">Definições e chaves: <code>%APPDATA%\\Cratekeeper\\config.json</code> (só neste PC).<br>
-   Caches e registos: <code>%APPDATA%\\Cratekeeper\\bibliotecas</code> — fora da pasta das músicas,
+<p class="muted">Definições e chaves: <code>%APPDATA%\\GrooveWizard\\config.json</code> (só neste PC).<br>
+   Caches e registos: <code>%APPDATA%\\GrooveWizard\\bibliotecas</code> — fora da pasta das músicas,
    para não aparecerem se a partilhares no Soulseek / Nicotine+.</p>
 <h3>Problemas comuns</h3>
 <ul>
@@ -99,14 +100,15 @@ HELP = {
   <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.</li>
 </ul>
 <h3>Made a mistake?</h3>
-<p><b>Undo last run</b> reverts the last run: files go back where they were, removed duplicates and junk come out of
+<p><b>Undo last run</b> tries to revert the last run: files go back where they were, removed duplicates and junk come out of
    quarantine, the original tags (genre, album, title…) are restored and what was extracted from packs is put aside
-   (the packs stay). If a file is open in another program, close it and press Undo again.<br>
+   (the packs stay). Anything it cannot restore (deleted, changed by hand, name taken) is listed at the end.
+   If a file is open in another program, close it and press Undo again.<br>
    <b>Empty quarantine</b> sends what is in quarantine to the Recycle Bin now — after that, Undo can no
    longer bring those files back.</p>
 <h3>Where data is kept</h3>
-<p class="muted">Settings and keys: <code>%APPDATA%\\Cratekeeper\\config.json</code> (this PC only).<br>
-   Caches and logs: <code>%APPDATA%\\Cratekeeper\\bibliotecas</code> — outside your music folder,
+<p class="muted">Settings and keys: <code>%APPDATA%\\GrooveWizard\\config.json</code> (this PC only).<br>
+   Caches and logs: <code>%APPDATA%\\GrooveWizard\\bibliotecas</code> — outside your music folder,
    so they don't show up if you share it on Soulseek / Nicotine+.</p>
 <h3>Common problems</h3>
 <ul>
@@ -119,7 +121,7 @@ HELP = {
 
 ABOUT = {
     "pt": """
-<h2>Cratekeeper</h2>
+<h2>GrooveWizard</h2>
 <p class="muted">Versão {v}</p>
 <p>Arruma bibliotecas de música de DJ: extrai packs, separa por género e subgénero, remove repetidas
    ficando com a Extended Mix, procura géneros online e limpa as tags.</p>
@@ -133,7 +135,7 @@ ABOUT = {
 <p class="muted">GPL-3.0 — podes usar, estudar, alterar e partilhar; versões alteradas que distribuas têm de manter o código aberto. Componentes de terceiros e as suas licenças: pasta <code>licencas</code> da instalação.</p>
 """,
     "en": """
-<h2>Cratekeeper</h2>
+<h2>GrooveWizard</h2>
 <p class="muted">Version {v}</p>
 <p>Tidies DJ music libraries: extracts packs, sorts by genre and subgenre, removes duplicates keeping the
    Extended Mix, looks up genres online and cleans tags.</p>

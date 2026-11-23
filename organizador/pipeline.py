@@ -30,13 +30,14 @@ from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
                    normalize_genre, raw_genre, read_info, restore, search_terms, snapshot, track_key, version_label)
 
-APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Cratekeeper")
-_OLD_DIR = os.path.join(os.path.dirname(APP_DIR), "OrganizadorMusica")  # name before v0.2
-if os.path.isdir(_OLD_DIR) and not os.path.exists(APP_DIR):
-    try:
-        os.rename(_OLD_DIR, APP_DIR)
-    except OSError:
-        pass
+APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
+for _old in ("Cratekeeper", "OrganizadorMusica"):  # names before v1.2 / v0.2
+    _old = os.path.join(os.path.dirname(APP_DIR), _old)
+    if os.path.isdir(_old) and not os.path.exists(APP_DIR):
+        try:
+            os.rename(_old, APP_DIR)
+        except OSError:
+            APP_DIR = _old  # in use (old version still open): keep using it, moved on a later start
 ARCHIVES = {".zip", ".rar", ".7z"}
 # what packs bring besides music; anything else left in _entrada is kept for the user to check
 JUNK_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".txt", ".nfo", ".url", ".htm", ".html", ".m3u", ".m3u8",
@@ -45,6 +46,8 @@ SKIP_DIRS = {"downloading", "incomplete"}  # transfers still in progress (Soulse
 INBOX = "_entrada"  # where packs are extracted before sorting
 QUARANTINE = "_quarentena"  # removed files, one subfolder per run
 QUARANTINE_DAYS = 30
+QUARANTINE_MARK = ".quarentena-da-app"  # written by the app; a _quarentena without it is not ours
+RUN_DIR = re.compile(r"^\d{8}-\d{6}-\d+-\d+$")  # run_id format
 KEEP_LOGS = 30
 # extraction guards (zip bombs, full disks), per run
 MAX_MEMBERS = 100_000
@@ -259,10 +262,14 @@ class Organizer:
         """Into this run's quarantine folder (Undo brings it back). Same drive: a rename, no copy."""
         rel = os.path.relpath(path, self.root)
         dst = os.path.join(self.qdir, rel)
+        # (raises if a user folder called _quarentena already exists: stops before touching anything)
         qroot = os.path.join(self.root, QUARANTINE)
         if not os.path.isdir(qroot):
             os.makedirs(qroot, exist_ok=True)
             _hide(qroot)  # not shown in Explorer / shares that skip hidden folders
+            open(os.path.join(qroot, QUARANTINE_MARK), "w").close()
+        elif not os.path.exists(os.path.join(qroot, QUARANTINE_MARK)):
+            raise RuntimeError(t("err.quarantine_taken", path=qroot))  # a user folder with that name: never use it
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         self._write_log("quarentena", path, dst)
         try:
@@ -695,10 +702,14 @@ def _purge_quarantine(root, older_than_days=None):
     qroot = os.path.join(root, QUARANTINE)
     if not os.path.isdir(qroot):
         return 0
+    if not os.path.exists(os.path.join(qroot, QUARANTINE_MARK)):
+        return 0  # not created by this app: never touch it
     limit = time.time() - older_than_days * 86400 if older_than_days is not None else None
     n = 0
     for d in os.listdir(qroot):
         p = os.path.join(qroot, d)
+        if not (RUN_DIR.match(d) and os.path.isdir(p)):
+            continue  # only the per-run folders the app made
         try:
             if limit is None or os.path.getmtime(p) < limit:
                 send2trash(p)
@@ -706,7 +717,8 @@ def _purge_quarantine(root, older_than_days=None):
         except OSError:
             pass
     try:
-        if not os.listdir(qroot):
+        if os.listdir(qroot) == [QUARANTINE_MARK]:
+            os.remove(os.path.join(qroot, QUARANTINE_MARK))
             os.rmdir(qroot)
     except OSError:
         pass
@@ -733,6 +745,23 @@ def _remove_empty(top):
 
 
 # ---------- undo ----------
+
+def _safe_restore(path, snap, run_id):
+    """Undo of tags on a copy that must reopen with the same length before it replaces the original."""
+    before = read_info(path)["duration"]
+    tmp = f"{path}.ck-undo-{run_id}{os.path.splitext(path)[1]}"
+    shutil.copy2(path, tmp)
+    try:
+        restore(tmp, snap)
+        check = read_info(tmp)
+        # length 0 is allowed here: an AIFF put back to "no tags" reports 0 again, as it did before the run
+        if check["unreadable"] or (before and check["duration"] and abs(check["duration"] - before) > 0.5):
+            raise RuntimeError(t("err.tag_check"))
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
 
 def _move_back(src, dst, errors, retry):
     """dst -> src; True when moved. retry[0] = True when trying again later could succeed."""
@@ -797,7 +826,7 @@ def _undo_last(root, progress, cancel):
                     errors.append(t("err.undo_missing", path=a))
                 else:
                     try:
-                        restore(a, b)
+                        _safe_restore(a, b, run_id)
                         rep["undo_tags"] += 1
                         ok = True
                     except Exception as e:  # e.g. file open in another program: try again later
@@ -842,6 +871,10 @@ def _undo_last(root, progress, cancel):
             os.remove(done_path)
         except OSError:
             pass
-        _remove_empty(os.path.join(root, QUARANTINE))
+        qroot = os.path.join(root, QUARANTINE)
+        _remove_empty(qroot)
+        if os.path.isdir(qroot) and os.listdir(qroot) == [QUARANTINE_MARK]:
+            os.remove(os.path.join(qroot, QUARANTINE_MARK))
+            os.rmdir(qroot)
         _remove_empty(os.path.join(root, INBOX))
     return rep, errors

@@ -1,6 +1,6 @@
-<p align="center"><img src="organizador/recursos/cratekeeper.png" width="128" alt="Cratekeeper"></p>
+<p align="center"><img src="organizador/recursos/groovewizard.png" width="128" alt="GrooveWizard"></p>
 
-<h1 align="center">Cratekeeper</h1>
+<h1 align="center">GrooveWizard</h1>
 
 <p align="center">
   Arruma a tua biblioteca de música de DJ: por género e subgénero, sem repetidas, com as tags limpas.<br>
@@ -11,9 +11,12 @@
   <a href="../../actions/workflows/testes.yml"><img src="../../actions/workflows/testes.yml/badge.svg" alt="testes"></a>
 </p>
 
-<p align="center"><img src="docs/1-principal.png" width="860" alt="Janela do Cratekeeper"></p>
+<p align="center"><sub>Até à versão 1.1.0 chamava-se <i>Cratekeeper</i>; a atualização mantém definições, chaves e histórico. ·
+Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history.</sub></p>
 
-> ⚠️ **Faz uma cópia de segurança antes da primeira utilização.** O Cratekeeper move ficheiros e altera tags. Tem
+<p align="center"><img src="docs/1-principal.png" width="860" alt="Janela do GrooveWizard"></p>
+
+> ⚠️ **Faz uma cópia de segurança antes da primeira utilização.** O GrooveWizard move ficheiros e altera tags. Tem
 > pré-visualização, desfazer e quarentena, mas são proteções, não substituem uma cópia de segurança.
 
 ## O que faz
@@ -43,12 +46,12 @@
 - **Pré-visualizar** mostra o que vai mudar, sem mexer em nada. Não consegue prever as faixas que ainda estão dentro dos packs, os resultados da procura online nem a limpeza de sites nas tags.
 - **Desfazer última** tenta repor a última execução: devolve os ficheiros, repõe as tags originais e desfaz a extração dos packs. Não consegue repor o que entretanto foi apagado, mudado à mão, esvaziado da quarentena ou ocupado por outro ficheiro com o mesmo nome; nesses casos diz quais.
 - **Quarentena**: repetidas e lixo vão para `_quarentena` (pasta escondida dentro da biblioteca). Passados 30 dias, são enviados para a Reciclagem na próxima vez que organizares (ou já, com **Esvaziar quarentena**).
-- As tags são gravadas numa cópia verificada antes de substituir o original. Ficheiros da biblioteca com tags estragadas não são movidos nem alterados.
+- As tags são gravadas numa cópia verificada antes de substituir o original. Ficheiros que o mutagen não consegue abrir de todo não são movidos nem alterados. No fim, as pastas que ficaram vazias são removidas.
 - Recusa pastas perigosas (disco inteiro, pasta do utilizador, Windows, Program Files, AppData) e não deixa duas janelas organizar a mesma biblioteca.
 
 ## Como usar
 
-1. Descarrega `Cratekeeper-<versão>-setup.exe` em [Releases](../../releases/latest) e confirma o ficheiro (ver [Verificar o download](#verificar-o-download)). O instalador não tem assinatura digital, por isso o Windows SmartScreen pode avisar.
+1. Descarrega `GrooveWizard-<versão>-setup.exe` em [Releases](../../releases/latest) e confirma o ficheiro (ver [Verificar o download](#verificar-o-download)). O instalador não tem assinatura digital, por isso o Windows SmartScreen pode avisar.
 2. Na primeira vez escolhe o idioma e aceita os termos.
 3. Escolhe a pasta das músicas.
 4. (Recomendado) cola as chaves grátis e carrega em **Verificar**:
@@ -68,7 +71,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 - A deteção de repetidas e a procura online são estimativas: revê a pré-visualização e, se tiveres dúvidas, a pasta `_quarentena` antes de a esvaziar.
 - No instalador, o BPM vem só da tag; faixas sem BPM na tag vão para `BPM desconhecido`.
 - Cancelar a meio deixa feito o que já foi feito (e pode ser desfeito).
-- Desinstalar não apaga as definições em `%APPDATA%\Cratekeeper`.
+- Desinstalar não apaga as definições em `%APPDATA%\GrooveWizard`.
 
 ## Perguntas frequentes
 
@@ -84,10 +87,10 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 
 ## Privacidade
 
-- As chaves ficam em `%APPDATA%\Cratekeeper\config.json`, encriptadas com o Windows (DPAPI) sempre que o Windows o permite; só o teu utilizador neste PC as consegue ler. São enviadas apenas ao próprio serviço (Discogs ou Last.fm), na procura online e quando carregas em **Verificar**.
+- As chaves ficam em `%APPDATA%\GrooveWizard\config.json`, encriptadas com o Windows (DPAPI) sempre que o Windows o permite; só o teu utilizador neste PC as consegue ler. São enviadas apenas ao próprio serviço (Discogs ou Last.fm), na procura online e quando carregas em **Verificar**.
 - Na procura online, o Discogs recebe o artista e o título; o Last.fm e o MusicBrainz recebem o artista.
 - Ao abrir, a app pergunta ao GitHub se há uma versão nova. Como em qualquer pedido na internet, o GitHub vê o teu IP. Desliga-se nas opções.
-- Caches (artistas e títulos pesquisados), registos e o histórico para desfazer ficam em `%APPDATA%\Cratekeeper\bibliotecas\`, **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+.
+- Caches (artistas e títulos pesquisados), registos e o histórico para desfazer ficam em `%APPDATA%\GrooveWizard\bibliotecas\`, **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+. Se a app falhar, o erro fica em `%APPDATA%\GrooveWizard\erros.log`.
 - Nada é enviado aos autores.
 
 ## Verificar o download
@@ -95,10 +98,12 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 Cada release indica o SHA-256 do instalador. No PowerShell:
 
 ```powershell
-Get-FileHash .\Cratekeeper-<versão>-setup.exe -Algorithm SHA256
+Get-FileHash .\GrooveWizard-<versão>-setup.exe -Algorithm SHA256
 ```
 
 O valor tem de ser igual ao das notas da release. O botão **Atualizar** da app faz esta verificação sozinho e não abre um instalador que não bata certo.
+
+O SHA-256 confirma que o ficheiro chegou inteiro e é o mesmo que foi publicado; não prova quem o publicou (o instalador não tem assinatura digital). Descarrega só da página de releases deste repositório.
 
 ## Para programadores
 
@@ -108,9 +113,9 @@ python app.py
 ```
 
 - Testes: `python tests/test_pipeline.py` (também correm no GitHub a cada push, com build e arranque do `.exe`).
-- Teste com dados reais (só lê a biblioteca, trabalha numa cópia): `python tests/teste_real.py D:\Musica D:\cratekeeper-teste 150`
+- Teste com dados reais (só lê a biblioteca, trabalha numa cópia): `python tests/teste_real.py D:\Musica D:\groovewizard-teste 150`
 - Medir o BPM no áudio das faixas sem BPM na tag: `pip install librosa` (opcional; não vai no instalador).
-- Gerar o `.exe` e o instalador: `powershell -File build.ps1` → `dist\Cratekeeper\` e `dist\Cratekeeper-<versão>-setup.exe` (precisa do [Inno Setup 6](https://jrsoftware.org/isinfo.php)).
+- Gerar o `.exe` e o instalador: `powershell -File build.ps1` → `dist\GrooveWizard\` e `dist\GrooveWizard-<versão>-setup.exe` (precisa do [Inno Setup 6](https://jrsoftware.org/isinfo.php)).
 - Géneros, sinónimos de tags ("Afro House" → House), regras pelo nome dos packs e pastas-mãe: [`organizador/regras.py`](organizador/regras.py). Textos da interface (PT/EN): [`organizador/i18n.py`](organizador/i18n.py).
 - Problemas e sugestões: abre uma [issue](../../issues). Problemas de segurança: abre uma issue sem detalhes e pede contacto privado.
 
@@ -118,20 +123,20 @@ python app.py
 
 <h2 id="english">English</h2>
 
-**Cratekeeper** tidies a DJ music library on Windows 10/11. Interface in English and Portuguese.
+**GrooveWizard** tidies a DJ music library on Windows 10/11. Interface in English and Portuguese.
 
-> ⚠️ **Back up your music before the first run.** Cratekeeper moves files and edits tags. Preview, Undo and the
+> ⚠️ **Back up your music before the first run.** GrooveWizard moves files and edits tags. Preview, Undo and the
 > quarantine are safeguards, not a backup.
 
 **What it does:** extracts downloaded packs (zip/rar/7z, nested too; rar/7z need [7-Zip](https://7-zip.org)), sorts tracks into genre/subgenre folders (by Genre tag, else by pack name), removes duplicates (same artists + title; keeps the Extended Mix when the file name or title says so, else the longest, else lossless; different remixes and recordings with very different lengths are kept), looks up missing genres online (Discogs styles of matching releases; Last.fm and MusicBrainz per artist — an estimate, not a guarantee), splits tracks without a genre by BPM and cleans tags (genre written from the folder; download-site names removed from Album/Title/Comment). Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
 
-**Safeguards:** Preview changes nothing (it cannot predict tracks still inside packs, online results or site cleaning). Undo last run tries to restore files, original tags and pack extraction, and lists anything it could not restore (deleted, changed by hand, emptied from quarantine, name taken). Removed files go to a hidden `_quarentena` folder; after 30 days they are sent to the Recycle Bin on the next run, or at once with *Empty quarantine*. Tags are written to a verified copy first; library files with damaged tags are never moved or edited. Dangerous folders are refused; two windows cannot organize the same library.
+**Safeguards:** Preview changes nothing (it cannot predict tracks still inside packs, online results or site cleaning). Undo last run tries to restore files, original tags and pack extraction, and lists anything it could not restore (deleted, changed by hand, emptied from quarantine, name taken). Removed files go to a hidden `_quarentena` folder; after 30 days they are sent to the Recycle Bin on the next run, or at once with *Empty quarantine*. Tags are written to a verified copy first; files mutagen cannot open at all are never moved or edited. Folders left empty are removed at the end. Dangerous folders are refused; two windows cannot organize the same library.
 
 **Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check**, close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
 
-**Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics: review the preview and the quarantine. The installer reads BPM from tags only. Uninstalling keeps `%APPDATA%\Cratekeeper`.
+**Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics: review the preview and the quarantine. The installer reads BPM from tags only. Uninstalling keeps `%APPDATA%\GrooveWizard`.
 
-**Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. At start-up the app asks GitHub for the latest version (GitHub sees your IP; can be turned off). Caches, logs and undo history live in `%APPDATA%\Cratekeeper`, outside the music folder. Nothing is sent to the authors.
+**Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. At start-up the app asks GitHub for the latest version (GitHub sees your IP; can be turned off). Caches, logs and undo history live in `%APPDATA%\GrooveWizard`, outside the music folder; crashes are written to `%APPDATA%\GrooveWizard\erros.log`. The SHA-256 in each release proves integrity (the file is the one published), not authorship: the installer is unsigned, so download only from this repository's Releases. Nothing is sent to the authors.
 
 **From source:** `pip install -r requirements.txt && python app.py`. Tests: `python tests/test_pipeline.py`.
 
@@ -139,4 +144,4 @@ python app.py
 
 [GPL-3.0-or-later](LICENSE). O instalador inclui componentes de terceiros com as suas licenças (mutagen GPL-2.0-or-later, Qt/PySide6 LGPL-3.0, Send2Trash BSD, Python PSF): ver [`licencas/AVISOS_TERCEIROS.md`](licencas/AVISOS_TERCEIROS.md), que inclui a oferta de código-fonte. / The installer bundles third-party components under their own licenses; see the notices file, which includes the written source offer.
 
-rekordbox, Serato, Beatport, Discogs, Last.fm e MusicBrainz são marcas dos respetivos donos; o Cratekeeper não está associado a nenhum deles.
+rekordbox, Serato, Beatport, Discogs, Last.fm e MusicBrainz são marcas dos respetivos donos; o GrooveWizard não está associado a nenhum deles.

@@ -116,11 +116,23 @@ def test_full_run_and_undo():
     b = os.path.join(root, "B - Spam.wav")
     assert raw_genre(b) == "https://djsoundtop.com" and "djsoundtop" in str(WAVE(b).tags.get("TALB"))  # tags restored
     assert genre_of(os.path.join(root, "C - Afro.wav")) == "House"
-    assert not os.path.exists(os.path.join(root, pl.QUARANTINE)) or not any(
-        f for _, _, fs in os.walk(os.path.join(root, pl.QUARANTINE)) for f in fs if not f.endswith(".wav")) or True
+    # only the undone pack extraction may remain in quarantine (put aside whole); nothing else
+    left = [os.path.relpath(os.path.join(dp, f), root) for dp, _, fs in os.walk(os.path.join(root, pl.QUARANTINE))
+            for f in fs if f != pl.QUARANTINE_MARK]
+    assert left and all("_extracoes_desfeitas" in f for f in left), left
     assert rep["undo_extract"] >= 1 and not os.path.exists(os.path.join(root, pl.INBOX))  # extraction put aside
     assert pl.Organizer(opts).preview()["archives_pending"] == 1  # the pack would be extracted again
     assert pl.undo_last(root)[0]["undo_nothing"] == 1
+
+
+def test_quarantine_ownership():
+    root = os.path.join(TMP, "qown")
+    user_q = os.path.join(root, pl.QUARANTINE)
+    make(os.path.join(user_q, "minha faixa.wav"), 1, "X", "Mine")  # a user folder that happens to have this name
+    os.utime(user_q, (0, 0))
+    assert pl.purge_quarantine(root, 0) == 0 and os.path.exists(os.path.join(user_q, "minha faixa.wav"))
+    from organizador.tags import normalize_genre
+    assert normalize_genre("_quarentena") is None and normalize_genre("_Entrada") is None
 
 
 def test_lock():
@@ -180,6 +192,7 @@ if __name__ == "__main__":
         test_update_versions()
         test_duplicate_rules()
         test_lock()
+        test_quarantine_ownership()
         test_full_run_and_undo()
         print("ok")
     finally:

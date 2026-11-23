@@ -12,9 +12,9 @@ import urllib.request
 
 from . import __version__
 
-REPO = "devCidras/cratekeeper"
+REPO = "devCidras/groovewizard"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
-UA = f"Cratekeeper/{__version__}"
+UA = f"GrooveWizard/{__version__}"
 
 
 def parse(v):

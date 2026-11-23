@@ -17,15 +17,9 @@ jobs:
         run: |
           python app.py --self-test
           # exit code is unreliable after the hard exit that skips Qt teardown; the log line is what counts
-          if (-not (Select-String -Quiet -Pattern "^self-test ok" -Path cratekeeper-self-test.log)) { exit 1 }
-          Remove-Item cratekeeper-self-test.log
+          if (-not (Select-String -Quiet -Pattern "^self-test ok" -Path groovewizard-self-test.log)) { exit 1 }
+          Remove-Item groovewizard-self-test.log
           exit 0
-      - name: build exe
-        run: python -m PyInstaller --noconfirm --clean --windowed --name Cratekeeper --icon organizador\recursos\cratekeeper.ico --add-data "organizador\recursos;organizador\recursos" --exclude-module librosa --exclude-module numba --exclude-module scipy --exclude-module sklearn --exclude-module PySide6.QtNetwork --exclude-module PySide6.QtQml --exclude-module PySide6.QtQuick --exclude-module PySide6.QtPdf --exclude-module PySide6.QtOpenGL --exclude-module PySide6.QtVirtualKeyboard app.py
-      - name: packaged app starts
+      - name: release build (same script as the installer, without Inno Setup) + packaged app starts
         shell: pwsh
-        run: |
-          Start-Process dist\Cratekeeper\Cratekeeper.exe -ArgumentList "--self-test" -Wait
-          Get-Content cratekeeper-self-test.log
-          # ExitCode of a windowed app is not reliable through Start-Process; the log line is
-          if (-not (Select-String -Quiet -Pattern "^self-test ok" -Path cratekeeper-self-test.log)) { exit 1 }
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -SemInstalador
