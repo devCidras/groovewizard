@@ -98,7 +98,7 @@ def main():
     print(f"amostra: {len(before)} faixas soltas + {len(packed)} num zip")
 
     t0 = time.time()
-    opts = pl.Options(root=dst, online=False)  # online needs keys; tested separately
+    opts = pl.Options(root=dst, online=False, rename_packs=True)  # online needs keys; tested separately
     rep, errs = pl.Organizer(opts).run()
     print(f"organizar: {time.time() - t0:.0f} s", dict(rep), "erros:", errs[:5])
     after = state(dst)

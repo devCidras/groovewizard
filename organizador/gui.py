@@ -174,10 +174,27 @@ class Worker(QObject):
     progress = Signal(str, int, int, str)
     finished = Signal(str, object, object)  # kind, report, errors
     failed = Signal(str)
+    ask = Signal(object, object)  # worker, [(path, new name)] -> the window answers through worker.answer()
 
     def __init__(self, kind, opts, keys, cancel):
         super().__init__()
         self.kind, self.opts, self.keys, self.cancel = kind, opts, keys, cancel
+        self._answer, self._answered = False, threading.Event()
+
+    def answer(self, yes):
+        self._answer = yes
+        self._answered.set()
+
+    def ask_rename(self, items):
+        """Runs in the worker thread: waits for the user's answer in the window (Cancel also stops waiting)."""
+        self._answered.clear()
+        self.ask.emit(self, items)
+        while not self._answered.wait(0.2):
+            if self.cancel.is_set():
+                raise Cancelled()
+        if self.cancel.is_set():  # Cancel inside the question: stop, don't take it as "No"
+            raise Cancelled()
+        return self._answer
 
     def run(self):
         emit = lambda step, i, n, msg="": self.progress.emit(step, i, n, msg)
@@ -187,7 +204,7 @@ class Worker(QObject):
             elif self.kind == "purge":
                 rep, errs = {"purged": purge_quarantine(self.opts.root)}, []  # takes the library lock
             else:
-                org = Organizer(self.opts, self.keys, emit, self.cancel)
+                org = Organizer(self.opts, self.keys, emit, self.cancel, ask_rename=self.ask_rename)
                 rep, errs = (org.preview(), []) if self.kind == "preview" else org.run()
             self.finished.emit(self.kind, rep, errs)
         except Cancelled:
@@ -605,6 +622,7 @@ class Window(QMainWindow):
         self.worker.progress.connect(self.on_progress)
         self.worker.finished.connect(self.on_finished)
         self.worker.failed.connect(self.on_failed)
+        self.worker.ask.connect(self.ask_rename)
         for sig in (self.worker.finished, self.worker.failed):
             sig.connect(self.thread.quit)
         self.thread.finished.connect(self._thread_done)
@@ -638,6 +656,21 @@ class Window(QMainWindow):
         self.cancel.set()
         self.btn_cancel.setEnabled(False)
         self.status.setText(t("status.cancelling"))
+
+    def ask_rename(self, worker, items):
+        """New tracks outside _entrada: renaming one that is already in rekordbox/Serato would make it lose it.
+        The box is modal, so it carries its own Cancel (the main Cancel button can't be clicked meanwhile)."""
+        if self.cancel.is_set():
+            worker.answer(False)
+            return
+        box = QMessageBox(QMessageBox.Question, t("rename.title"), t("rename.ask", n=len(items)),
+                          QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, self)
+        box.setDefaultButton(QMessageBox.No)
+        box.setDetailedText("\n".join(f"{os.path.basename(p)}  →  {name}" for p, name in items))
+        choice = box.exec()
+        if choice == QMessageBox.Cancel:
+            self.do_cancel()
+        worker.answer(choice == QMessageBox.Yes)
 
     def on_progress(self, step, i, n, msg):
         self.bar.setMaximum(max(n, 1))

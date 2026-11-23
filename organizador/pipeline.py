@@ -46,6 +46,7 @@ SKIP_DIRS = {"downloading", "incomplete"}  # transfers still in progress (Soulse
 INBOX = "_entrada"  # where packs are extracted before sorting
 QUARANTINE = "_quarentena"  # removed files, one subfolder per run
 QUARANTINE_DAYS = 30
+INVENTORY = "faixas_conhecidas.json"  # tracks the app has seen: anything else is new (see Organizer.is_new)
 QUARANTINE_MARK = ".quarentena-da-app"  # written by the app; a _quarentena without it is not ours
 RUN_DIR = re.compile(r"^\d{8}-\d{6}-\d+-\d+$")  # run_id format
 KEEP_LOGS = 30
@@ -172,7 +173,7 @@ def _hide(path):
 
 
 class Organizer:
-    def __init__(self, opts, keys=None, progress=None, cancel=None):
+    def __init__(self, opts, keys=None, progress=None, cancel=None, ask_rename=None):
         self.opts = opts
         self.root = os.path.abspath(opts.root)
         if not os.path.isdir(self.root):
@@ -192,6 +193,16 @@ class Organizer:
         self._overrides_path = os.path.join(self.data, "generos_corrigidos.json")
         self.overrides = _read_json(self._overrides_path, {})  # track id -> genre found online
         self._extracted_bytes = self._extracted_members = self._extracted_archives = 0
+        # new tracks outside _entrada are renamed only if this says yes: ask_rename([(path, new name), ...]) -> bool
+        self.ask_rename = ask_rename
+        self._inventory_path = os.path.join(self.data, INVENTORY)
+        inv = _read_json(self._inventory_path, None)  # tracks seen in earlier runs; None before the first run
+        self.known = None if not isinstance(inv, dict) else (set(inv.get("paths", [])), set(inv.get("sizes", [])))
+        self._pending = set()  # never-seen tracks not settled yet (no answer, or the rename failed): stay new
+        self._start = []
+        self._settled = []
+        self._start_paths = set()  # normcase paths of the tracks there when the run began
+        self._moved_from = {}  # normcase dst -> src, for tracks this run moved
 
     # ---------- helpers ----------
 
@@ -235,11 +246,108 @@ class Organizer:
         return not os.path.exists(full) and u16(full) + 4 < 255 and u16(name) < 250
 
     def new_name(self, p, info):
-        """Only new tracks are renamed: extracted from packs or dropped in _entrada by the user. They are not in
-        rekordbox/Serato yet, so no link breaks; tracks anywhere else keep their name."""
+        """Tracks in _entrada (extracted from packs or dropped there) are new: not in rekordbox/Serato yet, so they
+        are renamed without asking. Other tracks only through rename_plan() + the user's yes."""
         if not (self.opts.rename_packs and self._in_inbox(p)) or info["unreadable"]:
             return None
         return pack_file_name(p, info)
+
+    def _rel(self, p):
+        return os.path.normcase(os.path.relpath(p, self.root))
+
+    def is_new(self, p):
+        """Never seen by the app: path unknown and no known file of the same size (moved/renamed by hand = known).
+        Before the first run nothing outside _entrada counts as new: we can't tell what rekordbox already has."""
+        if self.known is None or self._in_inbox(p):
+            return False
+        paths, sizes = self.known
+        if self._rel(p) in paths:
+            return False
+        try:
+            return os.path.getsize(p) not in sizes
+        except OSError:
+            return False
+
+    def rename_plan(self, files, infos):
+        """(names for _entrada tracks, names for never-seen tracks elsewhere): one plan, so two tracks never count
+        on the same new name and Preview says what Organize will do. Only the second group is asked about."""
+        inbox, outside, planned = {}, {}, set()
+        if not self.opts.rename_packs:
+            return inbox, outside
+        for p in sorted(files, key=lambda p: not self._in_inbox(p)):  # _entrada first: renamed without asking
+            info = infos[p]
+            if info["unreadable"]:
+                continue
+            if self._in_inbox(p):
+                group = inbox
+            elif self.is_new(p):
+                group = outside
+            else:
+                continue
+            name = pack_file_name(p, info)
+            g = self.plan_genre(p, info)
+            dst_dir = os.path.dirname(p) if self.in_place(p, g) else self.target_dir(g)
+            key = os.path.normcase(os.path.join(dst_dir, name or ""))
+            if self.name_usable(p, dst_dir, name) and key not in planned:
+                planned.add(key)
+                group[p] = name
+        return inbox, outside
+
+    def _settle(self, p):
+        """A never-seen track is dealt with (renamed, or the user said No): known, even if dedupe removes it later."""
+        self._pending.discard(os.path.normcase(p))
+        try:
+            self._settled.append((self._rel(p), os.path.getsize(p)))
+        except OSError:
+            pass
+
+    def _track_moves(self, src, dst):
+        """Keeps where each track that was new at the start went, so the inventory follows it."""
+        k = os.path.normcase(src)
+        self._moved_from[os.path.normcase(dst)] = k
+        if k in self._pending:
+            self._pending.discard(k)
+            self._pending.add(os.path.normcase(dst))
+
+    def _origin(self, p):
+        k = os.path.normcase(p)
+        seen = set()
+        while k in self._moved_from and k not in seen:
+            seen.add(k)
+            k = self._moved_from[k]
+        return k
+
+    def _identities(self, end=False):
+        """(relative path, size) of every track not waiting to be renamed.
+        shortcut: path OR size counts as known (no content hash, too slow for big libraries); this can only miss a
+        new track (never asked about), never rename a known one; a content fingerprint would close that gap."""
+        out = []
+        inbox = os.path.normcase(os.path.join(self.root, INBOX)) + os.sep
+        for p in self.audio_files():
+            if os.path.normcase(p) in self._pending:
+                continue
+            if end:
+                o = self._origin(p)
+                # arrived while this run was going: still new, asked next time.
+                # shortcut: a new file put at a path the run just emptied passes as known (safe side: not asked)
+                if o not in self._start_paths and not o.startswith(inbox) and (self.known is None or self.is_new(p)):
+                    continue
+            try:
+                out.append((self._rel(p), os.path.getsize(p)))
+            except OSError:
+                pass
+        return out
+
+    def save_inventory(self):
+        """Runs at the end of every run, finished or not. The list only grows: every track in the library becomes
+        known, except never-seen ones still waiting for an answer or whose rename failed (asked again next time).
+        Growing only means Undo, cancel or a half-done Undo can never make an old track look new."""
+        paths, sizes = self.known if self.known is not None else (set(), set())
+        paths, sizes = set(paths), set(sizes)
+        for rel, size in self._start + self._settled + self._identities(end=True):
+            paths.add(rel)
+            sizes.add(size)
+        _write_json(self._inventory_path, {"paths": sorted(paths), "sizes": sorted(sizes)})
 
     def _in_inbox(self, p):
         return os.path.normcase(p).startswith(os.path.normcase(os.path.join(self.root, INBOX)) + os.sep)
@@ -276,6 +384,7 @@ class Organizer:
                     pass
             self.errors.append(f"{src}: {e}")
             return None
+        self._track_moves(src, dst)  # only after it really moved
         return dst
 
     def trash(self, path):
@@ -485,6 +594,12 @@ class Organizer:
     def step_organize(self):
         files = list(self.audio_files())
         infos = self._read_all(files, "organize")
+        inbox_names, outside = self.rename_plan(files, infos)
+        if outside and not (self.ask_rename and self.ask_rename(sorted(outside.items()))):
+            for p in outside:  # "No": known from now on, never asked again
+                self._settle(p)
+            outside = {}
+        names = {**inbox_names, **outside}
         for i, p in enumerate(files, 1):
             self._tick("organize", i, len(files), os.path.basename(p))
             if infos[p]["unreadable"] and not self._in_inbox(p):
@@ -493,14 +608,16 @@ class Organizer:
                 self.errors.append(t("err.unreadable", path=p))
                 continue
             g = self.plan_genre(p, infos[p])
+            name = names.get(p)
             if self.in_place(p, g):
-                continue
-            name = self.new_name(p, infos[p])
-            dst = self.move(p, self.target_dir(g), name)
-            if dst:
-                self.report[f"moved|{self.label(g)}"] += 1
-                if name and os.path.basename(dst) == name:
-                    self.report["renamed"] += 1
+                dst = self.move(p, os.path.dirname(p), name) if name else None  # right folder: only the new name
+            else:
+                dst = self.move(p, self.target_dir(g), name)
+                if dst:
+                    self.report[f"moved|{self.label(g)}"] += 1
+            if dst and name and os.path.basename(dst) == name:
+                self.report["renamed"] += 1
+                self._settle(dst)  # done: known from now on
         inbox = os.path.join(self.root, INBOX)
         if os.path.isdir(inbox):
             done = self._done_archives()
@@ -671,12 +788,20 @@ class Organizer:
         steps = [(self.opts.extract, self.step_extract), (True, self.step_organize), (self.opts.dedupe, self.step_dedupe),
                  (self.opts.online, self.step_online), (self.opts.bpm_folders, self.step_bpm),
                  (self.opts.write_tags or self.opts.clean_sites, self.step_tags)]
+        if self.opts.rename_packs and self.known is not None:  # never-seen at the start: stay new if we stop early
+            self._pending = {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)}
+        self._start = self._identities()  # where/what every track was before this run: Undo puts them back there
+        self._start_paths = {os.path.normcase(p) for p in self.audio_files()}
         try:
             for on, fn in steps:
                 if on:
                     fn()
             self.remove_empty_dirs()
         finally:
+            try:
+                self.save_inventory()
+            except OSError as e:
+                self.errors.append(f"{self._inventory_path}: {e}")
             if self._log:
                 self._log.close()
         return self.report, self.errors
@@ -689,11 +814,11 @@ class Organizer:
 
     def _preview(self):
         rep = Counter()
-        planned = set()
         if self.opts.extract:
             rep["archives_pending"] = len(self.pending_archives())
         files = list(self.audio_files())
         infos = self._read_all(files, "preview")
+        inbox_names, outside = self.rename_plan(files, infos)
         for p, info in infos.items():
             if info["unreadable"] and not self._in_inbox(p):
                 rep["unreadable"] += 1
@@ -701,15 +826,12 @@ class Organizer:
             g = self.plan_genre(p, info)
             if not self.in_place(p, g):
                 rep[f"to_move|{self.label(g)}"] += 1
-                name = self.new_name(p, info)
-                if self.name_usable(p, self.target_dir(g), name):
-                    key = os.path.normcase(os.path.join(self.target_dir(g), name))
-                    if key not in planned:  # two new tracks wanting the same name: only the first gets it
-                        planned.add(key)
-                        rep["rename_pending"] += 1
+                if p in inbox_names:
+                    rep["rename_pending"] += 1
             elif self.opts.write_tags and self._genre_decision(p, info["genre"])[0] is not None:
                 rep["tags_pending"] += 1
         rep["tracks"] = len(files)
+        rep["rename_ask"] = len(outside)
         if self.opts.dedupe:
             rep["dups_pending"] = len(self.find_duplicates(infos))
         if self.opts.bpm_folders:

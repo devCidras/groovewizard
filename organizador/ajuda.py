@@ -53,8 +53,10 @@ HELP = {
   <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.</li>
   <li><b>Nomes</b> (opção, desligada por defeito): as faixas novas ficam com o nome
       <code>Artista - Título (Extended Mix)</code>: artista e título vêm das tags; a versão vem do título
-      e, se lá não estiver, do nome antigo do ficheiro. Novas são as que saem dos packs e as que
-      puseres na pasta <code>_entrada</code> dentro da biblioteca (cria-a se não existir). As que já tinhas mantêm o nome, para o rekordbox
+      e, se lá não estiver, do nome antigo do ficheiro. As faixas dos packs e as que puseres
+      na pasta <code>_entrada</code> são renomeadas sem perguntar. Outras faixas que a app nunca viu (por exemplo
+      soltas na raiz) só depois de confirmares; na primeira vez que organizas uma biblioteca, só a <code>_entrada</code>
+      conta. Organiza antes de importar as faixas novas no rekordbox. As que já tinhas mantêm o nome, para o rekordbox
       não as perder. Se faltar artista ou título nas tags, ou o nome já existir na pasta, fica o nome original.</li>
 </ul>
 <h3>Enganei-me, e agora?</h3>
@@ -105,8 +107,10 @@ HELP = {
   <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.</li>
   <li><b>Names</b> (option, off by default): new tracks are named
       <code>Artist - Title (Extended Mix)</code>: artist and title come from the tags; the version from the title,
-      or else from the old file name. New means extracted from packs or put in the
-      <code>_entrada</code> folder inside the library (create it if it isn't there). Tracks you already had keep their name, so rekordbox
+      or else from the old file name. Tracks from packs or put in the
+      <code>_entrada</code> folder are renamed without asking. Other tracks the app has never seen (e.g. loose in the
+      root) only after you confirm; the first time you organize a library, only <code>_entrada</code> counts.
+      Organize before importing new tracks into rekordbox. Tracks you already had keep their name, so rekordbox
       doesn't lose them. Without artist or title in the tags, or if the name is taken in the folder, the original name stays.</li>
 </ul>
 <h3>Made a mistake?</h3>

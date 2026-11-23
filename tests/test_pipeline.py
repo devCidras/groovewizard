@@ -183,6 +183,71 @@ def test_rename_packs():
     assert org.run()[0]["renamed"] == 1
 
 
+def test_new_tracks_outside_inbox():
+    root = os.path.join(TMP, "inv")
+    th = os.path.join(root, "House", "Tech House")
+    old = make(os.path.join(th, "old one.wav"), 2, "Old", "One", "Tech House")
+    make(os.path.join(root, "antes.wav"), 3, "Pre", "Existing", "Tech House")  # there before the 1st run
+    opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, write_tags=False, clean_sites=False,
+                      rename_packs=True)
+    asked = []
+    yes = lambda items: asked.append(items) or True
+
+    def cancel(items):
+        raise pl.Cancelled()
+
+    pl.Organizer(opts, ask_rename=yes).run()
+    assert not asked, "first run: nothing outside _entrada counts as new"
+    assert os.path.exists(os.path.join(th, "antes.wav"))
+
+    make(os.path.join(root, "nova.wav"), 1, "Fisher", "Losing It (Extended Mix)", "Tech House")  # new, loose in root
+    make(os.path.join(th, "ja no sitio.wav"), 4, "Bob", "Placed", "Tech House")  # new, already in the right folder
+    os.rename(old, os.path.join(root, "movida a mao.wav"))  # known track moved by hand: same size, not new
+    assert pl.Organizer(opts).preview()["rename_ask"] == 2
+
+    try:  # stopped while the question is open: the new tracks stay new
+        pl.Organizer(opts, ask_rename=cancel).run()
+        raise AssertionError("expected Cancelled")
+    except pl.Cancelled:
+        pass
+    assert pl.Organizer(opts).preview()["rename_ask"] == 2
+    pl.undo_last(root)  # undoing never makes known tracks new (antes.wav goes back to the root)
+    assert os.path.exists(os.path.join(root, "antes.wav"))
+    assert pl.Organizer(opts).preview()["rename_ask"] == 2
+
+    rep, errs = pl.Organizer(opts, ask_rename=yes).run()
+    assert not errs, errs
+    assert len(asked) == 1 and len(asked[0]) == 2, asked
+    assert sorted(os.listdir(th)) == ["Bob - Placed.wav", "Fisher - Losing It (Extended Mix).wav", "antes.wav",
+                                      "movida a mao.wav"], os.listdir(th)
+    assert rep["renamed"] == 2, rep
+    assert not pl.Organizer(opts).preview().get("rename_ask"), "renamed tracks are known now"
+    rep, errs = pl.undo_last(root)
+    assert not errs and os.path.exists(os.path.join(root, "nova.wav")) and os.path.exists(os.path.join(th, "ja no sitio.wav"))
+
+    # same new name wanted by a track in _entrada and one outside: one plan, preview = run
+    make(os.path.join(root, pl.INBOX, "a.wav"), 6, "Zed", "Same", "Tech House")
+    make(os.path.join(root, "b.wav"), 7, "Zed", "Same", "Tech House")
+    prev = pl.Organizer(opts).preview()
+    assert prev["rename_pending"] == 1 and not prev.get("rename_ask"), prev
+    rep, _ = pl.Organizer(opts, ask_rename=yes).run()
+    assert rep["renamed"] == 1 and os.path.exists(os.path.join(th, "Zed - Same.wav")) and os.path.exists(os.path.join(th, "b.wav"))
+
+    # a track that arrives while a run is going is not taken as known
+    late = os.path.join(root, "chegou tarde.wav")
+    org = pl.Organizer(opts, ask_rename=yes)
+    org.step_bpm = lambda: make(late, 8, "Late", "Comer", "Tech House")  # runs after organize
+    org.opts.bpm_folders = True
+    org.run()
+    org.opts.bpm_folders = False
+    assert pl.Organizer(opts).preview()["rename_ask"] == 1
+
+    make(os.path.join(root, "outra.wav"), 5, "Ann", "Other", "Tech House")
+    rep, errs = pl.Organizer(opts, ask_rename=lambda items: False).run()  # "No": kept, and never asked again
+    assert not errs and not rep["renamed"] and os.path.exists(os.path.join(th, "outra.wav")), (rep, errs)
+    assert not pl.Organizer(opts).preview().get("rename_ask")
+
+
 def test_quarantine_ownership():
     root = os.path.join(TMP, "qown")
     user_q = os.path.join(root, pl.QUARANTINE)
@@ -253,6 +318,7 @@ if __name__ == "__main__":
         test_quarantine_ownership()
         test_full_run_and_undo()
         test_rename_packs()
+        test_new_tracks_outside_inbox()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

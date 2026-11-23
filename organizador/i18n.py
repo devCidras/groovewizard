@@ -94,7 +94,7 @@ S = {
     "opt.merge_versions_d": {"pt": "Desligado: só Original e Extended são a mesma faixa; as outras versões ficam.",
                              "en": "Off: only Original and Extended are the same track; other versions are kept."},
     "opt.rename_packs": {"pt": "Dar nome Artista - Título às faixas novas", "en": "Name new tracks Artist - Title"},
-    "opt.rename_packs_d": {"pt": "Ex.: Fisher - Losing It (Extended Mix). Só faixas novas: as dos packs e as que puseres na pasta _entrada. As que já tens mantêm o nome.", "en": "E.g. Fisher - Losing It (Extended Mix). Only new tracks: from packs and those you put in the _entrada folder. Tracks you already have keep their name."},
+    "opt.rename_packs_d": {"pt": "Ex.: Fisher - Losing It (Extended Mix). Só faixas novas: as dos packs e da pasta _entrada sem perguntar; outras faixas novas, depois de confirmares. As que já tens mantêm o nome.", "en": "E.g. Fisher - Losing It (Extended Mix). Only new tracks: from packs and the _entrada folder without asking; other new tracks after you confirm. Tracks you already have keep their name."},
     "opt.delete_archives": {"pt": "Enviar compactados para a quarentena", "en": "Move archives to quarantine"},
     "opt.delete_archives_d": {"pt": "Depois de extraídos com sucesso.", "en": "After they were extracted successfully."},
     # actions
@@ -195,6 +195,9 @@ S = {
     "rep.unreadable": {"pt": "faixas com tags estragadas (ficam onde estão)", "en": "tracks with damaged tags (left in place)"},
     "rep.renamed": {"pt": "faixas novas com nome Artista - Título", "en": "new tracks renamed Artist - Title"},
     "rep.rename_pending": {"pt": "faixas novas a renomear Artista - Título", "en": "new tracks to rename Artist - Title"},
+    "rep.rename_ask": {"pt": "faixas novas fora da _entrada (vai perguntar antes de renomear)", "en": "new tracks outside _entrada (you will be asked before renaming)"},
+    "rename.title": {"pt": "Faixas novas", "en": "New tracks"},
+    "rename.ask": {"pt": "Encontrei {n} faixas novas fora da pasta _entrada.\n\nDar-lhes o nome Artista - Título?\n\nSe alguma já estiver no rekordbox / Serato, escolhe Não: o programa deixaria de a encontrar. A lista está em Mostrar detalhes.", "en": "Found {n} new tracks outside the _entrada folder.\n\nName them Artist - Title?\n\nIf any of them is already in rekordbox / Serato, choose No: it would no longer find it. The list is under Show Details."},
     "rep.tracks": {"pt": "faixas", "en": "tracks"},
     "rep.dups_pending": {"pt": "repetidas a remover", "en": "duplicates to remove"},
     "rep.undo_returned": {"pt": "faixas devolvidas", "en": "files moved back"},
