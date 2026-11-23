@@ -20,6 +20,7 @@ STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["ded
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
 EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "musicbrainz", "delete_archives"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper.png")
+LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "cratekeeper-simbolo.png")  # no tile: sits on the dark header
 
 
 def opt_key(field):
@@ -164,7 +165,7 @@ class Window(QMainWindow):
         # header
         head = QHBoxLayout()
         logo = QLabel()
-        logo.setPixmap(QPixmap(ICON).scaled(52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setPixmap(QPixmap(LOGO).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         head.addWidget(logo, 0, Qt.AlignTop)
         head.addSpacing(10)
         titles = QVBoxLayout()
