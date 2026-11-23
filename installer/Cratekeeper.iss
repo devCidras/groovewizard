@@ -1,7 +1,7 @@
 ; Instalador Windows (Inno Setup 6). Gerado por build.ps1 depois do PyInstaller.
 #define AppName "Cratekeeper"
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 
 [Setup]
