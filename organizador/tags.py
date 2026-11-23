@@ -153,10 +153,11 @@ def _first(tags, key):
 def read_info(path):
     """Everything the organizer needs from one file, with a single open: genre text, artist, title, duration."""
     f = _open(path)
-    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "unreadable": f is None}
+    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "bitrate": 0, "unreadable": f is None}
     if not f:
         return info
     info["duration"] = f.info.length if f.info else 0.0
+    info["bitrate"] = getattr(f.info, "bitrate", 0) or 0  # bits/s; 0 when the format doesn't say
     if not f.tags:
         return info
     ext = os.path.splitext(path)[1].lower()

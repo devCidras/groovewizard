@@ -81,4 +81,13 @@ QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 QToolTip {{ background: {C['muted']}; color: {C['fg']}; border: 1px solid {C['border']}; padding: 6px; }}
 QMessageBox {{ background: {C['card']}; }}
+QListWidget, QTableWidget {{
+    background: #12122A; border: 1px solid {C['border']}; border-radius: 8px; gridline-color: {C['border']};
+    selection-background-color: {C['secondary']}; outline: none;
+}}
+QListWidget::item {{ padding: 4px 6px; }}
+QListWidget:focus, QTableWidget:focus {{ border: 1px solid {C['secondary_hover']}; }}
+QHeaderView::section {{ background: {C['muted']}; color: {C['fg_muted']}; border: none; padding: 6px 8px; font-weight: 600; }}
+QTableWidget::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1px solid {C['fg_muted']}; background: {C['muted']}; }}
+QTableWidget::indicator:checked {{ background: {C['accent']}; border: 1px solid {C['accent']}; }}
 """

@@ -58,9 +58,22 @@ HELP = {
       soltas na raiz) só depois de confirmares; na primeira vez que organizas uma biblioteca, só a <code>_entrada</code>
       conta. Organiza antes de importar as faixas novas no rekordbox. As que já tinhas mantêm o nome, para o rekordbox
       não as perder. Se faltar artista ou título nas tags, ou o nome já existir na pasta, fica o nome original.</li>
+  <li><b>Pastas protegidas</b> (em Biblioteca): a app nunca mexe nelas — não move, não renomeia, não muda tags
+      nem remove repetidas lá dentro. Boa para edits teus ou pastas já preparadas.</li>
+  <li><b>Só faixas novas</b> (opção): só mexe na <code>_entrada</code> e nas faixas que a app ainda não conhecia.
+      É mais rápido e o resto da biblioteca fica como está. As repetidas procuram-se na biblioteca toda, mas só
+      saem cópias novas.</li>
 </ul>
+<h3>Ver tudo antes de organizar</h3>
+<p>Depois de <b>Pré-visualizar</b> aparece <b>Ver lista</b>: cada faixa que vai mudar (para onde vai, o nome novo,
+   o género, que repetida sai e qual fica). Podes procurar e <b>desmarcar</b> faixas; as desmarcadas ficam exatamente
+   como estão nessa organização. <b>Organizar com as marcadas</b> começa logo.</p>
+<h3>Relatório</h3>
+<p><b>Relatório</b> analisa a biblioteca sem mexer em nada e guarda uma lista (abre no Excel) das faixas sem
+   artista ou título, sem género, MP3 abaixo de 320 kbps, com menos de 1 minuto ou com tags estragadas.</p>
 <h3>Enganei-me, e agora?</h3>
-<p><b>Desfazer última</b> tenta anular a última execução: devolve os ficheiros ao sítio onde estavam, tira da quarentena
+<p><b>Desfazer…</b> mostra as últimas execuções. Escolhes até onde voltar; as mais recentes do que essa também são
+   desfeitas, da mais nova para a mais antiga. Cada execução desfeita devolve os ficheiros ao sítio onde estavam, tira da quarentena
    as repetidas e o lixo removidos, repõe as tags originais (género, álbum, título…) e põe de lado o que foi
    extraído dos packs (os packs ficam). O que não conseguir repor (apagado, mudado à mão, nome já ocupado) é
    listado no fim. Se algum ficheiro estiver aberto noutro programa, fecha-o e carrega outra vez.<br>
@@ -112,9 +125,22 @@ HELP = {
       root) only after you confirm; the first time you organize a library, only <code>_entrada</code> counts.
       Organize before importing new tracks into rekordbox. Tracks you already had keep their name, so rekordbox
       doesn't lose them. Without artist or title in the tags, or if the name is taken in the folder, the original name stays.</li>
+  <li><b>Protected folders</b> (under Library): the app never touches them — no moving, renaming, tag changes or
+      duplicate removal inside. Good for your own edits or folders you already prepared.</li>
+  <li><b>Only new tracks</b> (option): only touches <code>_entrada</code> and tracks the app has not seen before.
+      Faster, and the rest of the library stays as it is. Duplicates are looked for in the whole library, but only
+      new copies are removed.</li>
 </ul>
+<h3>See everything before organizing</h3>
+<p>After <b>Preview</b>, <b>See list</b> shows every track that will change (where it goes, its new name, the genre,
+   which duplicate goes and which stays). You can search and <b>untick</b> tracks; unticked tracks stay exactly as they
+   are in that run. <b>Organize with the ticked ones</b> starts right away.</p>
+<h3>Report</h3>
+<p><b>Report</b> looks at the library without changing anything and saves a list (opens in Excel) of tracks without
+   artist or title, without genre, MP3 under 320 kbps, shorter than 1 minute or with damaged tags.</p>
 <h3>Made a mistake?</h3>
-<p><b>Undo last run</b> tries to revert the last run: files go back where they were, removed duplicates and junk come out of
+<p><b>Undo…</b> lists the recent runs. Choose how far back to go; runs newer than that one are undone too, newest
+   first. Each undone run puts files back where they were, takes removed duplicates and junk out of
    quarantine, the original tags (genre, album, title…) are restored and what was extracted from packs is put aside
    (the packs stay). Anything it cannot restore (deleted, changed by hand, name taken) is listed at the end.
    If a file is open in another program, close it and press Undo again.<br>

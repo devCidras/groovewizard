@@ -324,6 +324,89 @@ def test_versions_option():
     assert title_key("Song (Original Mix)", False) == title_key("Song (Extended Mix)", False)
 
 
+def test_protected_and_skip():
+    root = os.path.join(TMP, "prot")
+    mine = os.path.join(root, "Os Meus Edits")
+    edit = make(os.path.join(mine, "A - Song (Original Mix).wav"), 1, "A", "Song (Original Mix)", "Tech House")
+    spam = make(os.path.join(mine, "B - X.wav"), 1, "B", "X", "https://site.com")
+    make(os.path.join(root, "A - Song (Extended Mix).wav"), 2, "A", "Song (Extended Mix)", "Tech House")
+    untick = make(os.path.join(root, "C - Y.wav"), 1, "C", "Y", "Techno")
+    opts = pl.Options(root=root, online=False, bpm_folders=False,
+                      protected=[mine, root, r"C:\fora", os.path.join(root, pl.INBOX, "x"), os.path.join(root, pl.QUARANTINE)])
+    org = pl.Organizer(opts, skip=[untick])
+    assert org._protected == {os.path.normcase(mine)}  # the library, outside it, _entrada and _quarentena are ignored
+    org.preview()
+    assert not any(p in (edit, spam, untick) for _, p, _ in org.plan), org.plan
+    rep, errs = pl.Organizer(opts, skip=[untick]).run()
+    assert not errs, errs
+    assert os.path.exists(edit) and os.path.exists(spam) and raw_genre(spam) == "https://site.com"  # not touched
+    assert os.path.exists(untick)  # unticked in the list: stays where it is
+    assert os.path.exists(os.path.join(root, "House", "Tech House", "A - Song (Extended Mix).wav"))
+    assert "dups_trashed" not in rep  # the protected copy is not compared, never removed
+
+    # a protected target folder: nothing is moved into it
+    techno = os.path.join(root, "Techno")
+    os.makedirs(techno, exist_ok=True)
+    new = make(os.path.join(root, "D - Z.wav"), 1, "D", "Z", "Techno")
+    opts.protected = [mine, techno]
+    assert pl.Organizer(opts).preview()["protected_target"] == 2  # D - Z and the unticked C - Y
+    rep, errs = pl.Organizer(opts).run()
+    assert os.path.exists(new) and any("D - Z.wav" in e for e in errs)
+    # Undo leaves protected folders alone and keeps the run pending
+    house = os.path.join(root, "House")
+    runs = pl.list_runs(root)
+    rep, errs = pl.undo_until(root, runs[-1][0], protected=[house])
+    assert any(pl.t("err.undo_stuck") == e for e in errs)
+    assert os.path.exists(os.path.join(house, "Tech House", "A - Song (Extended Mix).wav"))
+    a = pl.Organizer(opts).run_id
+    assert a < pl.Organizer(opts).run_id  # run ids sort in time order
+
+
+def test_only_new():
+    root = os.path.join(TMP, "novas")
+    old = make(os.path.join(root, "solta", "A - Old.wav"), 1, "A", "Old", "Techno")
+    opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=True, only_new=True)
+    pl.Organizer(opts).run()  # first run: no list of known tracks yet, so only _entrada counts
+    assert os.path.exists(old)
+    new = make(os.path.join(root, "B - New.wav"), 3, "B", "New", "Techno")
+    dup_old = make(os.path.join(root, "solta", "C - Same (Original Mix).wav"), 2, "C", "Same (Original Mix)", "House")
+    org = pl.Organizer(opts)
+    org.known[0].add(org._rel(dup_old))  # pretend it was there before
+    org.known[1].add(os.path.getsize(dup_old))
+    pl._write_json(org._inventory_path, {"paths": sorted(org.known[0]), "sizes": sorted(org.known[1])})
+    make(os.path.join(root, pl.INBOX, "C - Same (Extended Mix).wav"), 4, "C", "Same (Extended Mix)", "House")
+    rep, errs = pl.Organizer(opts).run()
+    assert not errs, errs
+    assert os.path.exists(old) and os.path.exists(dup_old)  # old tracks: not moved, not removed as duplicates
+    assert os.path.exists(os.path.join(root, "Techno", "Techno", "B - New.wav"))
+    assert os.path.exists(os.path.join(root, "House", "House", "C - Same (Extended Mix).wav"))
+    assert not os.path.exists(new)
+
+
+def test_undo_history_and_report():
+    root = os.path.join(TMP, "hist")
+    a = make(os.path.join(root, "A - One.wav"), 1, "A", "One", "Techno")
+    opts = pl.Options(root=root, online=False, bpm_folders=False)
+    pl.Organizer(opts).run()
+    b = make(os.path.join(root, "B - Two.wav"), 1, "B", "Two", "House")
+    pl.Organizer(opts).run()
+    runs = pl.list_runs(root)
+    assert len(runs) == 2 and runs[0][1]["mover"] == 1
+    rep, errs = pl.undo_until(root, runs[1][0])  # the older one: both are undone, newest first
+    assert not errs, errs
+    assert os.path.exists(a) and os.path.exists(b) and pl.list_runs(root) == []
+    assert pl.undo_until(root, runs[1][0]) == (pl.Counter(), [])  # nothing left: does nothing
+
+    make(os.path.join(root, "Sem Tags.wav"), 1)
+    short = make(os.path.join(root, "C - Short.wav"), 1, "C", "Short", "Techno")
+    out = os.path.join(TMP, "relatorio.csv")
+    rep = pl.library_report(pl.Organizer(opts), out)
+    assert rep["tracks"] == 4 and rep["report_no_artist_title"] == 1 and rep["report_no_genre"] == 1
+    text = open(out, encoding="utf-8-sig").read()
+    assert "Sem Tags.wav" in text and os.path.exists(short)  # read only
+    assert any(short in line and pl.t("rep.report_short") in line for line in text.splitlines())  # 1 s long
+
+
 if __name__ == "__main__":
     try:
         test_rules()
@@ -336,6 +419,9 @@ if __name__ == "__main__":
         test_full_run_and_undo()
         test_rename_packs()
         test_new_tracks_outside_inbox()
+        test_protected_and_skip()
+        test_only_new()
+        test_undo_history_and_report()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

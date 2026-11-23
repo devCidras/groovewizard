@@ -2,23 +2,26 @@
 import os
 import sys
 import threading
+import time
 import traceback
+from dataclasses import asdict
 
 from PySide6.QtCore import QObject, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QThread, QTimer, Signal, Property
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-                               QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
+                               QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
+                               QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from . import __version__, config, termos
 from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
-from .pipeline import APP_DIR, Busy, Cancelled, Options, Organizer, purge_quarantine, too_broad, undo_last
+from .pipeline import (APP_DIR, Busy, Cancelled, Options, Organizer, library_lock, library_report, list_runs,
+                       protectable, purge_quarantine, too_broad, undo_until)
 from .theme import C, QSS
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
-EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "rename_packs", "musicbrainz", "delete_archives"]
+EXTRA_OPTIONS = ["only_new", "merge_versions", "clean_sites", "families", "rename_packs", "musicbrainz", "delete_archives"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-icone.png")  # symbol without tile: reads bigger
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-simbolo.png")  # no tile: sits on the dark header
 
@@ -176,9 +179,11 @@ class Worker(QObject):
     failed = Signal(str)
     ask = Signal(object, object)  # worker, [(path, new name)] -> the window answers through worker.answer()
 
-    def __init__(self, kind, opts, keys, cancel):
+    def __init__(self, kind, opts, keys, cancel, extra=None):
         super().__init__()
         self.kind, self.opts, self.keys, self.cancel = kind, opts, keys, cancel
+        self.extra = extra or {}  # undo: {"until": run_id}; run: {"skip": [paths unticked in the review list]}
+        self.plan, self.report_path = [], None  # results the window reads after a preview / report
         self._answer, self._answered = False, threading.Event()
 
     def answer(self, yes):
@@ -200,12 +205,20 @@ class Worker(QObject):
         emit = lambda step, i, n, msg="": self.progress.emit(step, i, n, msg)
         try:
             if self.kind == "undo":
-                rep, errs = undo_last(self.opts.root, emit, self.cancel)
+                rep, errs = undo_until(self.opts.root, self.extra["until"], emit, self.cancel, self.opts.protected)
             elif self.kind == "purge":
                 rep, errs = {"purged": purge_quarantine(self.opts.root)}, []  # takes the library lock
+            elif self.kind == "report":
+                org = Organizer(self.opts, self.keys, emit, self.cancel)
+                path = os.path.join(org.data, f"relatorio-{time.strftime('%Y%m%d-%H%M%S')}.csv")
+                with library_lock(self.opts.root):  # no run moving files while it reads them
+                    rep, errs = library_report(org, path), []
+                self.report_path = path
             else:
-                org = Organizer(self.opts, self.keys, emit, self.cancel, ask_rename=self.ask_rename)
+                org = Organizer(self.opts, self.keys, emit, self.cancel, ask_rename=self.ask_rename,
+                                skip=self.extra.get("skip"))
                 rep, errs = (org.preview(), []) if self.kind == "preview" else org.run()
+                self.plan = org.plan
             self.finished.emit(self.kind, rep, errs)
         except Cancelled:
             self.failed.emit(t("msg.cancelled"))
@@ -305,6 +318,23 @@ class Window(QMainWindow):
         row.addWidget(self.folder, 1)
         row.addWidget(pick)
         lay.addLayout(row)
+        lay.addWidget(QLabel(t("protect.title"), objectName="stepDesc"))
+        lay.addWidget(QLabel(t("protect.hint"), objectName="hint", wordWrap=True))
+        self.protected = QListWidget()
+        self.protected.setAccessibleName(t("protect.title"))
+        self.protected.addItems(opts.protected)
+        self.protected.setMaximumHeight(96)
+        lay.addWidget(self.protected)
+        row = QHBoxLayout()
+        row.addStretch()
+        self.protect_add = QPushButton(t("protect.add"), objectName="ghost", cursor=Qt.PointingHandCursor)
+        self.protect_del = QPushButton(t("protect.remove"), objectName="ghost", cursor=Qt.PointingHandCursor)
+        self.protect_add.clicked.connect(self.add_protected)
+        self.protect_del.clicked.connect(lambda: [self.protected.takeItem(self.protected.row(i))
+                                                  for i in self.protected.selectedItems()])
+        row.addWidget(self.protect_del)
+        row.addWidget(self.protect_add)
+        lay.addLayout(row)
         ll.addWidget(c)
 
         link = '<a style="color:{c}" href="{h}">{x}</a>'
@@ -355,7 +385,8 @@ class Window(QMainWindow):
         self.btn_run = QPushButton(t("btn.run"), objectName="primary", cursor=Qt.PointingHandCursor)
         self.btn_preview = QPushButton(t("btn.preview"), cursor=Qt.PointingHandCursor, toolTip=t("btn.preview_tip"))
         self.btn_cancel = QPushButton(t("btn.cancel"), objectName="danger", cursor=Qt.PointingHandCursor, enabled=False)
-        self.btn_undo = QPushButton(t("btn.undo"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.undo_tip"))
+        self.btn_undo = QPushButton(t("btn.history"), objectName="ghost", cursor=Qt.PointingHandCursor,
+                                    toolTip=t("btn.history_tip"))
         self.btn_run.clicked.connect(lambda: self.start("run"))
         self.btn_preview.clicked.connect(lambda: self.start("preview"))
         self.btn_cancel.clicked.connect(self.do_cancel)
@@ -376,8 +407,16 @@ class Window(QMainWindow):
         lay.addLayout(btns)
         self.btn_purge = QPushButton(t("btn.purge"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.purge_tip"))
         self.btn_purge.clicked.connect(self.purge)
+        self.btn_plan = QPushButton(objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.plan_tip"))
+        self.btn_plan.clicked.connect(self.show_plan)
+        self.btn_plan.hide()  # only after a Preview found something
+        self.btn_report = QPushButton(t("btn.report"), objectName="ghost", cursor=Qt.PointingHandCursor,
+                                      toolTip=t("btn.report_tip"))
+        self.btn_report.clicked.connect(lambda: self.start("report"))
         extra = QHBoxLayout()  # secondary actions on their own row: never squeezed by the main buttons
+        extra.addWidget(self.btn_plan)
         extra.addStretch()
+        extra.addWidget(self.btn_report)
         extra.addWidget(self.btn_purge)
         extra.addWidget(self.btn_undo)
         lay.addLayout(extra)
@@ -572,15 +611,29 @@ class Window(QMainWindow):
         if d:
             self.folder.setText(os.path.normpath(d))
 
+    def add_protected(self):
+        root = self.folder.text().strip()
+        d = QFileDialog.getExistingDirectory(self, t("protect.dialog"), root)
+        if not d:
+            return
+        d = os.path.normpath(d)
+        if not root or not protectable(root, [d]):  # outside the library, the library itself, _entrada / _quarentena
+            QMessageBox.warning(self, t("protect.title"), t("protect.outside", root=root))
+            return
+        if os.path.normcase(d) not in {os.path.normcase(self.protected.item(i).text()) for i in range(self.protected.count())}:
+            self.protected.addItem(d)
+
     def current(self):
         opts = Options(root=self.folder.text().strip(), folder_lang=self.folder_lang,
+                       protected=[self.protected.item(i).text() for i in range(self.protected.count())],
                        **{f: tg.isChecked() for f, tg in self.toggles.items()})
         keys = {"discogs_token": self.discogs.text().strip(), "lastfm_api_key": self.lastfm.text().strip()}
         config.save(opts, keys)
         return opts, keys
 
     def busy(self, on):
-        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.folder, self.lang_combo, *self.toggles.values()):
+        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_report, self.btn_plan,
+                  self.protected, self.protect_add, self.protect_del, self.folder, self.lang_combo, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
 
@@ -588,7 +641,7 @@ class Window(QMainWindow):
         for field, r in self.step_rows:
             if kind == "preview":
                 on = field in ("_organize", "extract", "dedupe")
-            elif kind in ("undo", "purge"):
+            elif kind in ("undo", "purge", "report"):
                 on = False
             elif field == "write_tags":
                 on = opts.write_tags or opts.clean_sites
@@ -596,7 +649,7 @@ class Window(QMainWindow):
                 on = field.startswith("_") or getattr(opts, field)
             r.set("waiting" if on else "off")
 
-    def start(self, kind, opts=None, keys=None):
+    def start(self, kind, opts=None, keys=None, extra=None):
         if getattr(self, "_updating", False):
             return  # an update is downloading; the app will close for the installer
         if opts is None:
@@ -614,9 +667,11 @@ class Window(QMainWindow):
         self.reset_rows(opts, kind)
         self.current_row = None
         self.clear_stats()
+        self.btn_plan.hide()  # a list from an earlier Preview no longer matches the files
+        self._plan_opts = asdict(opts) if kind == "preview" else None  # the list is valid only for these options
         self.cancel = threading.Event()
         self.thread = QThread()
-        self.worker = Worker(kind, opts, keys, self.cancel)
+        self.worker = Worker(kind, opts, keys, self.cancel, extra)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self.on_progress)
@@ -648,9 +703,30 @@ class Window(QMainWindow):
             self.start("purge", opts, keys)
 
     def undo(self):
+        from .janelas import HistoryDialog, run_date
         opts, keys = self.current()
-        if QMessageBox.question(self, t("btn.undo"), t("msg.undo_confirm")) == QMessageBox.Yes:
-            self.start("undo", opts, keys)
+        if not os.path.isdir(opts.root):
+            QMessageBox.warning(self, t("card.library"), t("msg.pick_folder"))
+            return
+        runs = list_runs(opts.root)
+        d = HistoryDialog(runs, self)
+        if d.exec() != HistoryDialog.Accepted or d.chosen() < 0:
+            return
+        i = d.chosen()
+        run_id = runs[i][0]
+        if QMessageBox.question(self, t("history.title"), t("history.confirm", n=i + 1, date=run_date(run_id))) == QMessageBox.Yes:
+            self.start("undo", opts, keys, {"until": run_id})
+
+    def show_plan(self):
+        from .janelas import PlanDialog
+        opts, keys = self.current()
+        if asdict(opts) != self._plan_opts:  # folder or options changed since the Preview: the list is not for these
+            self.btn_plan.hide()
+            QMessageBox.information(self, t("plan.title"), t("plan.stale"))
+            return
+        d = PlanDialog(self._plan, opts.root, self)
+        if d.exec() == PlanDialog.Accepted:
+            self.start("run", opts, keys, {"skip": d.skipped()})
 
     def do_cancel(self):
         self.cancel.set()
@@ -738,6 +814,20 @@ class Window(QMainWindow):
             self.log.appendPlainText(t("log.rekordbox"))
         if kind == "preview":
             self.log.appendPlainText(t("log.preview_limits"))
+            self._plan = self.worker.plan
+            if self._plan:
+                self.btn_plan.setText(t("btn.plan", n=f"{len(self._plan):,}".replace(",", " ")))
+                self.btn_plan.show()
+        if kind == "report" and self.worker.report_path:
+            path = self.worker.report_path
+            QTimer.singleShot(0, lambda: self._report_ready(path))  # after the counts are on screen
+
+    def _report_ready(self, path):
+        box = QMessageBox(QMessageBox.Information, t("btn.report"), t("report.done", path=path), QMessageBox.Close, self)
+        open_btn = box.addButton(t("report.open"), QMessageBox.AcceptRole)
+        box.exec()
+        if box.clickedButton() is open_btn:
+            os.startfile(path)
 
     def on_failed(self, msg):
         # never shut down after an error or a cancel: only a run that finished (see on_finished)

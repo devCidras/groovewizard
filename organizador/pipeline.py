@@ -19,7 +19,7 @@ import zipfile
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from send2trash import send2trash
 
@@ -75,6 +75,8 @@ class Options:
     folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
     merge_versions: bool = True  # Radio Edit / Club Mix count as the same song as the Extended Mix
     rename_packs: bool = False  # new tracks (packs / _entrada) get 'Artist - Title (Mix)' names; never tracks elsewhere
+    only_new: bool = False  # only _entrada and tracks never seen before; the rest of the library is left as it is
+    protected: list = field(default_factory=list)  # folders (absolute paths) the app never reads, moves or edits
 
 
 class Cancelled(Exception):
@@ -158,6 +160,19 @@ def too_broad(root):
     return False
 
 
+def protectable(root, dirs):
+    """The protected folders that count (normcase): inside the library, not the library itself and not the app's own
+    _entrada / _quarentena (it must be able to extract, quarantine, undo and empty them)."""
+    here = os.path.normcase(os.path.abspath(root))
+    own = [os.path.join(here, os.path.normcase(n)) for n in (INBOX, QUARANTINE)]
+    out = set()
+    for d in dirs or []:
+        d = os.path.normcase(os.path.abspath(d)) if d else ""
+        if d and d != here and _inside(d, here) and not any(d == o or _inside(d, o) for o in own):
+            out.add(d)
+    return out
+
+
 def _find_7zip():
     for p in SEVEN_ZIP:
         if os.path.isfile(p) or shutil.which(p):
@@ -173,7 +188,7 @@ def _hide(path):
 
 
 class Organizer:
-    def __init__(self, opts, keys=None, progress=None, cancel=None, ask_rename=None):
+    def __init__(self, opts, keys=None, progress=None, cancel=None, ask_rename=None, skip=None):
         self.opts = opts
         self.root = os.path.abspath(opts.root)
         if not os.path.isdir(self.root):
@@ -188,7 +203,9 @@ class Organizer:
         self.report = Counter()
         self.errors = []
         self._log = None
-        self.run_id = time.strftime("%Y%m%d-%H%M%S") + f"-{os.getpid()}-{time.time_ns() % 10**9}"
+        # sorts by name in time order (Undo relies on it): fixed-width nanoseconds before the pid
+        now = time.time_ns()
+        self.run_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(now // 10**9)) + f"-{now % 10**9:09d}-{os.getpid()}"
         self.qdir = os.path.join(self.root, QUARANTINE, self.run_id)
         self._overrides_path = os.path.join(self.data, "generos_corrigidos.json")
         self.overrides = _read_json(self._overrides_path, {})  # track id -> genre found online
@@ -203,6 +220,13 @@ class Organizer:
         self._settled = []
         self._start_paths = set()  # normcase paths of the tracks there when the run began
         self._moved_from = {}  # normcase dst -> src, for tracks this run moved
+        # left alone: protected folders inside the library (the library itself can't be one) and files the user
+        # unticked in the preview list
+        self._protected = protectable(self.root, opts.protected)
+        self._skip = {os.path.normcase(p) for p in (skip or [])}
+        self._fresh = set()  # only_new: tracks this run works on besides _entrada (followed when moved)
+        self.plan = []  # filled by preview(): (kind, path, detail) rows for the review list
+        self.dup_best = {}  # duplicate -> the copy that stays
 
     # ---------- helpers ----------
 
@@ -305,6 +329,8 @@ class Organizer:
         """Keeps where each track that was new at the start went, so the inventory follows it."""
         k = os.path.normcase(src)
         self._moved_from[os.path.normcase(dst)] = k
+        if self.opts.only_new and (k in self._fresh or self._in_inbox(src)):
+            self._fresh.add(os.path.normcase(dst))
         if k in self._pending:
             self._pending.discard(k)
             self._pending.add(os.path.normcase(dst))
@@ -352,9 +378,30 @@ class Organizer:
     def _in_inbox(self, p):
         return os.path.normcase(p).startswith(os.path.normcase(os.path.join(self.root, INBOX)) + os.sep)
 
+    def left_alone(self, p):
+        """Inside a protected folder, or unticked in the preview list: never read, moved, renamed or edited."""
+        k = os.path.normcase(p)
+        return k in self._skip or k in self._protected or any(k.startswith(d + os.sep) for d in self._protected)
+
+    def _in_scope(self, p):
+        """'Only new tracks': _entrada and the tracks never seen before (where they went during this run)."""
+        return not self.opts.only_new or self._in_inbox(p) or os.path.normcase(p) in self._fresh
+
+    def _walk(self, base=None):
+        """os.walk of the library without protected folders, transfers in progress and the root-level '_' folders
+        (except _entrada)."""
+        base = base or self.root
+        for dp, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not self.left_alone(os.path.join(dp, d))
+                       and not (dp == self.root and d.startswith("_") and d != INBOX)]
+            yield dp, dirs, files
+
     def move(self, src, dst_dir, name=None):
         """Never overwrites and never deletes a file it did not create itself. `name`: new file name, used only
         when free (taken: the file keeps its own name, so nothing gets a ' (1)' just for the rename)."""
+        if self.left_alone(dst_dir):  # never into a protected folder: the track stays where it is
+            self.errors.append(t("err.protected_target", path=src))
+            return None
         os.makedirs(dst_dir, exist_ok=True)
         if not self.name_usable(src, dst_dir, name):
             name = None
@@ -393,6 +440,9 @@ class Organizer:
         dst = os.path.join(self.qdir, rel)
         # (raises if a user folder called _quarentena already exists: stops before touching anything)
         qroot = os.path.join(self.root, QUARANTINE)
+        if self.left_alone(qroot):
+            self.errors.append(t("err.protected_target", path=path))
+            return False
         if not os.path.isdir(qroot):
             os.makedirs(qroot, exist_ok=True)
             _hide(qroot)  # not shown in Explorer / shares that skip hidden folders
@@ -429,12 +479,11 @@ class Organizer:
                 os.remove(tmp)
 
     def audio_files(self, base=None):
-        base = base or self.root
-        for dp, dirs, files in os.walk(base):
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not (dp == self.root and d.startswith("_") and d != INBOX)]
+        for dp, _, files in self._walk(base):
             for n in files:
-                if is_audio(n) and ".ck-" not in n:  # our own temporary copies (left only by a crash)
-                    yield os.path.join(dp, n)
+                p = os.path.join(dp, n)
+                if is_audio(n) and ".ck-" not in n and not self.left_alone(p):  # .ck-: our temp copies (crash)
+                    yield p
 
     def _read_all(self, files, step):
         """{path: info} read in parallel, cancellable."""
@@ -455,9 +504,7 @@ class Organizer:
 
     def remove_empty_dirs(self):
         found = []
-        for dp, dirs, _ in os.walk(self.root):
-            # never touch transfers in progress or the root-level "_" folders
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not (dp == self.root and d.startswith("_") and d != INBOX)]
+        for dp, _, _ in self._walk():  # never protected folders, transfers in progress or root-level "_" folders
             if dp != self.root:
                 found.append(dp)
         for dp in reversed(found):  # deepest first
@@ -473,9 +520,12 @@ class Organizer:
         done = self._done_archives()
         out = []
         for dp, dirs, files in os.walk(self.root):
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not (dp == self.root and d == QUARANTINE)]  # _entrada included: packs inside packs
+            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not (dp == self.root and d == QUARANTINE)
+                       and not self.left_alone(os.path.join(dp, d))]  # _entrada included: packs inside packs
             for n in files:
                 p = os.path.join(dp, n)
+                if self.left_alone(p):
+                    continue
                 aid = self._archive_id(p) if os.path.splitext(n)[1].lower() in ARCHIVES else None
                 if aid and aid not in done:
                     out.append(p)
@@ -510,6 +560,9 @@ class Organizer:
             stem = os.path.splitext(os.path.basename(a))[0].strip(" .")
             # an archive inside a pack is extracted next to it, so the pack name still gives the genre
             parent = os.path.dirname(a) if self._in_inbox(a) else inbox
+            if self.left_alone(parent):  # _entrada protected: nowhere to extract to
+                self.errors.append(t("err.protected_target", path=a))
+                continue
             out, k = os.path.join(parent, stem), 2
             while os.path.exists(out):
                 out, k = os.path.join(parent, f"{stem} ({k})"), k + 1
@@ -592,7 +645,7 @@ class Organizer:
         return normalize_genre(info["genre"]) or g or genre_from_folder(path, pack) or NO_GENRE
 
     def step_organize(self):
-        files = list(self.audio_files())
+        files = [p for p in self.audio_files() if self._in_scope(p)]
         infos = self._read_all(files, "organize")
         inbox_names, outside = self.rename_plan(files, infos)
         if outside and not (self.ask_rename and self.ask_rename(sorted(outside.items()))):
@@ -621,10 +674,12 @@ class Organizer:
         inbox = os.path.join(self.root, INBOX)
         if os.path.isdir(inbox):
             done = self._done_archives()
-            for dp, _, fs in os.walk(inbox):  # covers, .nfo, .url... and inner archives already extracted
+            for dp, _, fs in self._walk(inbox):  # covers, .nfo, .url... and inner archives already extracted
                 for n in fs:
                     p = os.path.join(dp, n)
                     ext = os.path.splitext(n)[1].lower()
+                    if self.left_alone(p):
+                        continue
                     if (ext in JUNK_EXT or (ext in ARCHIVES and self._archive_id(p) in done)) and self.trash(p):
                         self.report["junk_trashed"] += 1
         self.remove_empty_dirs()
@@ -654,6 +709,8 @@ class Organizer:
         return out
 
     def find_duplicates(self, infos):
+        """Copies to remove (best kept: see _score). 'Only new tracks': only new copies are removed.
+        Also fills self.dup_best (copy removed -> copy kept) for the review list."""
         groups = defaultdict(list)
         for p, info in infos.items():
             if info["unreadable"]:
@@ -663,9 +720,13 @@ class Organizer:
                 groups[key].append((p, info["duration"]))
         out = []
         for v in groups.values():
-            if len(v) > 1:
+            if len(v) > 1 and any(self._in_scope(p) for p, _ in v):
                 ranked = sorted(v, key=lambda x: self._score(x[0], x[1], infos[x[0]]["title"]), reverse=True)
-                out += self._losers(ranked, infos)
+                # only new: an old copy is never removed (the rest of the library is left as it is), even if the
+                # new one is better; a full run sorts that out
+                losers = [p for p in self._losers(ranked, infos) if self._in_scope(p)]
+                self.dup_best.update((p, ranked[0][0]) for p in losers)
+                out += losers
         return out
 
     def step_dedupe(self):
@@ -685,7 +746,7 @@ class Organizer:
             self.errors.append(t("err.online_skipped"))
             return
         base = self.target_dir(NO_GENRE)
-        files = list(self.audio_files(base)) if os.path.isdir(base) else []
+        files = [p for p in self.audio_files(base) if self._in_scope(p)] if os.path.isdir(base) else []
         try:
             for i, p in enumerate(files, 1):
                 self._tick("online", i, len(files), os.path.basename(p))
@@ -721,9 +782,9 @@ class Organizer:
         files = []
         for top in (NO_GENRE, OTHER):
             d = self.target_dir(top)
-            if os.path.isdir(d):
+            if os.path.isdir(d) and not self.left_alone(d):
                 files += [os.path.join(d, n) for n in os.listdir(d) if is_audio(n)]  # only loose ones
-        return files
+        return [p for p in files if self._in_scope(p) and not self.left_alone(p)]
 
     def step_bpm(self):
         files = self._loose_unsorted()
@@ -739,7 +800,7 @@ class Organizer:
     # ---------- tags ----------
 
     def step_tags(self):
-        files = list(self.audio_files())
+        files = [p for p in self.audio_files() if self._in_scope(p)]
         for i, p in enumerate(files, 1):
             self._tick("tags", i, len(files), os.path.basename(p))
             try:
@@ -790,6 +851,7 @@ class Organizer:
                  (self.opts.write_tags or self.opts.clean_sites, self.step_tags)]
         if self.opts.rename_packs and self.known is not None:  # never-seen at the start: stay new if we stop early
             self._pending = {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)}
+        self._fresh = self._new_tracks()
         self._start = self._identities()  # where/what every track was before this run: Undo puts them back there
         self._start_paths = {os.path.normcase(p) for p in self.audio_files()}
         try:
@@ -812,36 +874,59 @@ class Organizer:
         with library_lock(self.root):
             return self._preview()
 
+    def _new_tracks(self):
+        """'Only new tracks': the never-seen tracks outside _entrada (before the first run: none)."""
+        return {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)} if self.opts.only_new else set()
+
     def _preview(self):
+        """Counts for the summary, and self.plan: one row per track that will change, for the review list
+        ("move": new path, "rename_ask": new name if you say yes, "dup": the copy that stays, "tags": new genre)."""
         rep = Counter()
         if self.opts.extract:
             rep["archives_pending"] = len(self.pending_archives())
+        self._fresh = self._new_tracks()
         files = list(self.audio_files())
-        infos = self._read_all(files, "preview")
-        inbox_names, outside = self.rename_plan(files, infos)
+        infos = self._read_all(files, "preview")  # all of them: duplicates are looked for in the whole library
+        inbox_names, outside = self.rename_plan([p for p in files if self._in_scope(p)], infos)
         for p, info in infos.items():
+            if not self._in_scope(p):
+                continue
             if info["unreadable"] and not self._in_inbox(p):
                 rep["unreadable"] += 1
                 continue
             g = self.plan_genre(p, info)
+            name = inbox_names.get(p)
+            if not self.in_place(p, g) and self.left_alone(self.target_dir(g)):
+                rep["protected_target"] += 1  # Organize leaves it where it is
+                continue
             if not self.in_place(p, g):
                 rep[f"to_move|{self.label(g)}"] += 1
-                if p in inbox_names:
+                if name:
                     rep["rename_pending"] += 1
+                self.plan.append(("move", p, os.path.join(self.target_dir(g), name or os.path.basename(p))))
+            elif name:
+                rep["rename_pending"] += 1
+                self.plan.append(("move", p, os.path.join(os.path.dirname(p), name)))
             elif self.opts.write_tags and self._genre_decision(p, info["genre"])[0] is not None:
                 rep["tags_pending"] += 1
+                self.plan.append(("tags", p, self._genre_decision(p, info["genre"])[0]))
+            if p in outside:
+                self.plan.append(("rename_ask", p, outside[p]))
         rep["tracks"] = len(files)
         rep["rename_ask"] = len(outside)
         if self.opts.dedupe:
-            rep["dups_pending"] = len(self.find_duplicates(infos))
+            dups = self.find_duplicates(infos)
+            rep["dups_pending"] = len(dups)
+            self.plan += [("dup", p, self.dup_best[p]) for p in dups]
         if self.opts.bpm_folders:
             rep["bpm_pending"] = len(self._loose_unsorted())
         if self.opts.online and os.path.isdir(self.target_dir(NO_GENRE)):
-            rep["online_pending"] = sum(1 for _ in self.audio_files(self.target_dir(NO_GENRE)))
+            rep["online_pending"] = sum(1 for p in self.audio_files(self.target_dir(NO_GENRE)) if self._in_scope(p))
         inbox = os.path.join(self.root, INBOX)
         if os.path.isdir(inbox):
-            rep["junk_pending"] = sum(1 for _, _, fs in os.walk(inbox) for n in fs
-                                      if os.path.splitext(n)[1].lower() in JUNK_EXT)
+            rep["junk_pending"] = sum(1 for dp, _, fs in self._walk(inbox) for n in fs  # same filters as the run
+                                      if os.path.splitext(n)[1].lower() in JUNK_EXT
+                                      and not self.left_alone(os.path.join(dp, n)))
         return Counter({k: v for k, v in rep.items() if v or k == "tracks"})
 
 
@@ -973,6 +1058,71 @@ def _move_back(src, dst, errors, retry):
         return False
 
 
+def list_runs(root):
+    """Runs that can still be undone, newest first: [(run_id, Counter of what each did)]."""
+    d = os.path.join(data_dir_for(root), "execucoes")
+    out = []
+    for f in sorted((f for f in os.listdir(d) if f.endswith(".csv") and not f.endswith(".desfeito.csv")), reverse=True):
+        kinds = Counter()
+        try:
+            with open(os.path.join(d, f), encoding="utf-8", newline="") as fh:
+                for r in csv.reader(fh):
+                    if r:
+                        kinds[r[0]] += 1
+        except (OSError, UnicodeDecodeError, csv.Error):
+            continue
+        out.append((f[:-4], kinds))
+    return out
+
+
+def undo_until(root, run_id, progress=None, cancel=None, protected=()):
+    """Undoes the runs from the newest back to run_id (included), one at a time: an older run can only be undone
+    after the newer ones, or a file moved twice would go back to the wrong place. Stops at the first run that
+    could not be fully undone (it stays the newest, so trying again continues from there)."""
+    with library_lock(root):
+        rep, errors = Counter(), []
+        while True:
+            pending = [r for r, _ in list_runs(root)]
+            if run_id not in pending:
+                return rep, errors
+            newest = pending[0]
+            r, e = _undo_last(root, progress, cancel, protected)
+            rep.update(r)
+            errors += e
+            if newest in [x for x, _ in list_runs(root)]:  # still there: something must be retried first
+                errors.append(t("err.undo_stuck"))
+                return rep, errors
+
+
+def library_report(organizer, csv_path):
+    """Read-only look at the whole library: counts per problem and a CSV list (problem; file) at csv_path.
+    Problems: damaged tags, no artist or title tag, no genre tag, MP3 under 320 kbps, shorter than 1 minute."""
+    files = list(organizer.audio_files())
+    infos = organizer._read_all(files, "report")
+    rep, rows = Counter({"tracks": len(files)}), []
+    for p, info in infos.items():
+        problems = []
+        if info["unreadable"]:
+            problems.append("report_unreadable")
+        else:
+            if not (info["artist"] and info["title"]):
+                problems.append("report_no_artist_title")
+            if not info["genre"]:
+                problems.append("report_no_genre")
+            if p.lower().endswith(".mp3") and 0 < info.get("bitrate", 0) < 320000:
+                problems.append("report_low_bitrate")
+            if 0 < info["duration"] < 60:
+                problems.append("report_short")
+        for k in problems:
+            rep[k] += 1
+            rows.append((t("rep." + k), p))
+    with open(csv_path, "w", encoding="utf-8-sig", newline="") as fh:  # BOM: Excel opens accents right
+        w = csv.writer(fh, delimiter=";")
+        w.writerow((t("report.col_problem"), t("report.col_file")))
+        w.writerows(sorted(rows))
+    return rep
+
+
 def undo_last(root, progress=None, cancel=None):
     """Undoes the last run: tags back to the originals, removed files out of quarantine, moves reversed,
     extracted packs put aside."""
@@ -980,7 +1130,12 @@ def undo_last(root, progress=None, cancel=None):
         return _undo_last(root, progress, cancel)
 
 
-def _undo_last(root, progress, cancel):
+def _undo_last(root, progress, cancel, protected=()):
+    """protected: folders the user protected since that run. Their entries are not undone; the run stays pending
+    (it can be undone once the folder is no longer protected)."""
+    shielded = protectable(root, protected)
+    inside = lambda p: any(os.path.normcase(os.path.abspath(p)) == d or os.path.normcase(os.path.abspath(p)).startswith(d + os.sep)
+                           for d in shielded)
     progress = progress or (lambda *a: None)
     data = data_dir_for(root)
     runs_dir = os.path.join(data, "execucoes")
@@ -1011,6 +1166,11 @@ def _undo_last(root, progress, cancel):
                 raise Cancelled()
             kind, a, b = r[:3]
             progress("undo", n, len(todo), os.path.basename(a))
+            touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind == "tags" else []
+            if any(os.path.isabs(p) and inside(p) for p in touched):
+                errors.append(t("err.undo_protected", path=a))
+                retry[0] = True  # stays pending: undone later, when the folder is no longer protected
+                continue
             ok = False
             if kind == "tags":
                 if not os.path.exists(a):
