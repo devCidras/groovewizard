@@ -12,7 +12,14 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r requirements.txt pyinstaller==6.22.3
       - run: python tests/test_pipeline.py
-      - run: python app.py --self-test
+      - name: app starts (source)
+        shell: pwsh
+        run: |
+          python app.py --self-test
+          # exit code is unreliable after the hard exit that skips Qt teardown; the log line is what counts
+          if (-not (Select-String -Quiet -Pattern "^self-test ok" -Path cratekeeper-self-test.log)) { exit 1 }
+          Remove-Item cratekeeper-self-test.log
+          exit 0
       - name: build exe
         run: python -m PyInstaller --noconfirm --clean --windowed --name Cratekeeper --icon organizador\recursos\cratekeeper.ico --add-data "organizador\recursos;organizador\recursos" --exclude-module librosa --exclude-module numba --exclude-module scipy --exclude-module sklearn app.py
       - name: packaged app starts
