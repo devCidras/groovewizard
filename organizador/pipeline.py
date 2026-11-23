@@ -397,7 +397,7 @@ class Organizer:
             os.makedirs(qroot, exist_ok=True)
             _hide(qroot)  # not shown in Explorer / shares that skip hidden folders
             open(os.path.join(qroot, QUARANTINE_MARK), "w").close()
-        elif not os.path.exists(os.path.join(qroot, QUARANTINE_MARK)):
+        elif not _owns_quarantine(self.root):
             raise RuntimeError(t("err.quarantine_taken", path=qroot))  # a user folder with that name: never use it
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         self._write_log("quarentena", path, dst)
@@ -853,11 +853,47 @@ def purge_quarantine(root, older_than_days=None):
         return _purge_quarantine(root, older_than_days)
 
 
+def _owns_quarantine(root):
+    """The app's mark is there, or the folder was made by a version before the mark existed (< 1.2.0): it then holds
+    only run folders, and our own run log shows the app moving files into one of them. Such a folder gets the mark
+    now; anything else is the user's.
+    shortcut: one proven run is enough (older logs may be pruned), the other folders only need the run-id name."""
+    qroot = os.path.join(root, QUARANTINE)
+    mark = os.path.join(qroot, QUARANTINE_MARK)
+    if os.path.exists(mark):
+        return True
+    logs = os.path.join(data_dir_for(root), "execucoes")
+    try:
+        entries = os.listdir(qroot)
+        if not entries or not all(RUN_DIR.match(d) and os.path.isdir(os.path.join(qroot, d)) for d in entries):
+            return False
+        if not any(_log_quarantined_into(logs, d, os.path.join(qroot, d)) for d in entries):
+            return False
+        open(mark, "w").close()
+    except OSError:
+        return False
+    return True
+
+
+def _log_quarantined_into(logs, run_id, run_dir):
+    """True when that run's log has a 'quarentena' row whose destination is inside run_dir."""
+    inside = os.path.normcase(run_dir) + os.sep
+    for name in (run_id + ".csv", run_id + ".desfeito.csv"):
+        try:
+            with open(os.path.join(logs, name), encoding="utf-8", newline="") as fh:
+                if any(r and r[0] == "quarentena" and len(r) > 2 and os.path.normcase(r[2]).startswith(inside)
+                       for r in csv.reader(fh)):
+                    return True
+        except (OSError, UnicodeDecodeError, csv.Error):
+            continue
+    return False
+
+
 def _purge_quarantine(root, older_than_days=None):
     qroot = os.path.join(root, QUARANTINE)
     if not os.path.isdir(qroot):
         return 0
-    if not os.path.exists(os.path.join(qroot, QUARANTINE_MARK)):
+    if not _owns_quarantine(root):
         return 0  # not created by this app: never touch it
     limit = time.time() - older_than_days * 86400 if older_than_days is not None else None
     n = 0

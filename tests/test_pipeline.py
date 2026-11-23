@@ -254,6 +254,23 @@ def test_quarantine_ownership():
     make(os.path.join(user_q, "minha faixa.wav"), 1, "X", "Mine")  # a user folder that happens to have this name
     os.utime(user_q, (0, 0))
     assert pl.purge_quarantine(root, 0) == 0 and os.path.exists(os.path.join(user_q, "minha faixa.wav"))
+    # made by a version before the mark: only run folders, each with its log in our data dir -> adopted
+    root = os.path.join(TMP, "qold")
+    run = "20261123-020440-17508-320412300"
+    make(os.path.join(root, pl.QUARANTINE, run, "pack.wav"), 1, "X", "Y")
+    logs = os.path.join(pl.data_dir_for(root), "execucoes")
+    os.makedirs(logs, exist_ok=True)
+    assert not pl._owns_quarantine(root)  # no log yet: could be the user's
+    open(os.path.join(logs, run + ".csv"), "w").close()
+    assert not pl._owns_quarantine(root)  # a log alone proves nothing: it must show a move into that folder
+    import csv
+    with open(os.path.join(logs, run + ".csv"), "w", encoding="utf-8", newline="") as fh:
+        csv.writer(fh).writerow(["quarentena", os.path.join(root, "pack.wav"),
+                                 os.path.join(root, pl.QUARANTINE, run, "pack.wav")])
+    os.makedirs(os.path.join(root, pl.QUARANTINE, "minhas coisas"))
+    assert not pl._owns_quarantine(root)  # something that is not a run folder: the user's
+    os.rmdir(os.path.join(root, pl.QUARANTINE, "minhas coisas"))
+    assert pl._owns_quarantine(root) and os.path.exists(os.path.join(root, pl.QUARANTINE, pl.QUARANTINE_MARK))
     from organizador.tags import normalize_genre
     assert normalize_genre("_quarentena") is None and normalize_genre("_Entrada") is None
 
