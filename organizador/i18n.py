@@ -114,8 +114,6 @@ S = {
     "key.ok": {"pt": '✓ Válida {detail}', "en": '✓ Valid {detail}'},
     "key.invalid": {"pt": '✗ Inválida — confirma que copiaste a chave toda', "en": '✗ Invalid — check you copied the whole key'},
     "key.offline": {"pt": 'Sem resposta do serviço (internet?) {detail}', "en": 'No answer from the service (internet?) {detail}'},
-    "opt.check_updates": {"pt": 'Avisar quando houver uma versão nova', "en": 'Tell me when a new version is out'},
-    "opt.check_updates_d": {"pt": 'Ao abrir, pergunta ao GitHub qual é a última versão (sem enviar dados teus).', "en": 'On start-up, asks GitHub for the latest version (no data of yours is sent).'},
     "upd.available": {"pt": 'Há uma versão nova do GrooveWizard: {v}', "en": 'A new GrooveWizard version is available: {v}'},
     "upd.install": {"pt": 'Atualizar', "en": 'Update'},
     "upd.open_page": {"pt": 'Ver no GitHub', "en": 'Open on GitHub'},

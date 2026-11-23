@@ -18,7 +18,7 @@ from .theme import C, QSS
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
-EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "musicbrainz", "delete_archives", "check_updates"]
+EXTRA_OPTIONS = ["merge_versions", "clean_sites", "families", "musicbrainz", "delete_archives"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-icone.png")  # symbol without tile: reads bigger
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-simbolo.png")  # no tile: sits on the dark header
 
@@ -795,6 +795,5 @@ def main():
         sys.exit(0)
     w = Window()
     w.show()
-    if config.load()[0].check_updates:
-        w.look_for_update()
+    w.look_for_update()  # always: the user wants to be told about every new version
     sys.exit(app.exec())

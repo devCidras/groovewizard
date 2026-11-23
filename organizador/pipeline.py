@@ -73,7 +73,6 @@ class Options:
     families: bool = True
     folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
     merge_versions: bool = True  # Radio Edit / Club Mix count as the same song as the Extended Mix
-    check_updates: bool = True  # app setting (not used by the pipeline): look for a new release at start-up
 
 
 class Cancelled(Exception):

@@ -89,7 +89,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 
 - As chaves ficam em `%APPDATA%\GrooveWizard\config.json`, encriptadas com o Windows (DPAPI) sempre que o Windows o permite; só o teu utilizador neste PC as consegue ler. São enviadas apenas ao próprio serviço (Discogs ou Last.fm), na procura online e quando carregas em **Verificar**.
 - Na procura online, o Discogs recebe o artista e o título; o Last.fm e o MusicBrainz recebem o artista.
-- Ao abrir, a app pergunta ao GitHub se há uma versão nova. Como em qualquer pedido na internet, o GitHub vê o teu IP. Desliga-se nas opções.
+- Ao abrir, a app pergunta ao GitHub se há uma versão nova. Como em qualquer pedido na internet, o GitHub vê o teu IP. Isto acontece sempre, para avisar de cada versão nova.
 - Caches (artistas e títulos pesquisados), registos e o histórico para desfazer ficam em `%APPDATA%\GrooveWizard\bibliotecas\`, **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+. Se a app falhar, o erro fica em `%APPDATA%\GrooveWizard\erros.log`.
 - Nada é enviado aos autores.
 
@@ -136,7 +136,7 @@ python app.py
 
 **Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics: review the preview and the quarantine. The installer reads BPM from tags only. Uninstalling keeps `%APPDATA%\GrooveWizard`.
 
-**Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. At start-up the app asks GitHub for the latest version (GitHub sees your IP; can be turned off). Caches, logs and undo history live in `%APPDATA%\GrooveWizard`, outside the music folder; crashes are written to `%APPDATA%\GrooveWizard\erros.log`. The SHA-256 in each release proves integrity (the file is the one published), not authorship: the installer is unsigned, so download only from this repository's Releases. Nothing is sent to the authors.
+**Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. At start-up the app asks GitHub for the latest version (GitHub sees your IP; always on, so every new version is announced). Caches, logs and undo history live in `%APPDATA%\GrooveWizard`, outside the music folder; crashes are written to `%APPDATA%\GrooveWizard\erros.log`. The SHA-256 in each release proves integrity (the file is the one published), not authorship: the installer is unsigned, so download only from this repository's Releases. Nothing is sent to the authors.
 
 **From source:** `pip install -r requirements.txt && python app.py`. Tests: `python tests/test_pipeline.py`.
 
