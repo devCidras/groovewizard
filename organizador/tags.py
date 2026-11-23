@@ -210,6 +210,33 @@ def _name_title(path):
     return stem.split(" - ", 1)[1] if " - " in stem else ""
 
 
+_BAD_NAME_LEN = 120  # characters; the full path is checked again before the move
+_BARE_VERSION = re.compile(r"\b(?:extended|original|club|radio|dub|instrumental|vocal)\s+(?:mix|edit|version)\b", re.I)
+_BAD_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def pack_file_name(path, info):
+    """'Artist - Title (Extended Mix).ext' from the tags, for tracks that came out of a pack; None when unsure.
+    The version comes from the title tag, else from the current file name; none is invented. If the old name says
+    'extended' and the new one would not, the file keeps its name (dedupe prefers Extended by name)."""
+    a, t = strip_sites(info.get("artist") or "").strip(), strip_sites(info.get("title") or "").strip()
+    if not (a and t):
+        return None
+    if not _REMIX.search(t):  # 'Groove' in the tag, 'Groove (Extended Mix)' in the file name
+        old = os.path.splitext(os.path.basename(path))[0].replace("_", " ")
+        found = _REMIX.findall(old) or [m.group(0) for m in _BARE_VERSION.finditer(old)]
+        if found:
+            v = found[-1].strip()
+            t = f"{t} ({v.title() if v == v.lower() else v})"  # scene names are all lower case
+    name = _BAD_NAME.sub(" ", f"{a} - {t}")
+    name = re.sub(r"\s+", " ", name).strip(" .")[:_BAD_NAME_LEN].strip(" .")
+    if not re.search(r"\w", name):
+        return None
+    if re.search(r"extended", os.path.basename(path), re.I) and not re.search(r"extended", name, re.I):
+        return None
+    return name + os.path.splitext(path)[1].lower()
+
+
 def version_label(path, info=None):
     """'extended mix', 'radio edit', 'x remix'... from the title (tag, else file name); '' when none."""
     at = artist_title(path, info)

@@ -93,6 +93,8 @@ S = {
     "opt.merge_versions": {"pt": "Radio Edit / Club Mix contam como repetidas", "en": "Radio Edit / Club Mix count as duplicates"},
     "opt.merge_versions_d": {"pt": "Desligado: só Original e Extended são a mesma faixa; as outras versões ficam.",
                              "en": "Off: only Original and Extended are the same track; other versions are kept."},
+    "opt.rename_packs": {"pt": "Dar nome Artista - Título às faixas novas", "en": "Name new tracks Artist - Title"},
+    "opt.rename_packs_d": {"pt": "Ex.: Fisher - Losing It (Extended Mix). Só faixas novas: as dos packs e as que puseres na pasta _entrada. As que já tens mantêm o nome.", "en": "E.g. Fisher - Losing It (Extended Mix). Only new tracks: from packs and those you put in the _entrada folder. Tracks you already have keep their name."},
     "opt.delete_archives": {"pt": "Enviar compactados para a quarentena", "en": "Move archives to quarantine"},
     "opt.delete_archives_d": {"pt": "Depois de extraídos com sucesso.", "en": "After they were extracted successfully."},
     # actions
@@ -147,9 +149,9 @@ S = {
     "state.error": {"pt": "parado", "en": "stopped"},
     # dialogs
     "msg.pick_folder": {"pt": "Escolhe a pasta das músicas.", "en": "Choose your music folder."},
-    "msg.run_confirm": {"pt": "Vai mover e renomear ficheiros em:\n{root}\n\nO rekordbox / Serato tem de estar fechado. "
+    "msg.run_confirm": {"pt": "Vai organizar os ficheiros em:\n{root}\n\nO rekordbox / Serato tem de estar fechado. "
                               "No fim faz 'Relocate' nele.\n\nContinuar?",
-                        "en": "This will move and rename files in:\n{root}\n\nrekordbox / Serato must be closed. "
+                        "en": "This will organize the files in:\n{root}\n\nrekordbox / Serato must be closed. "
                               "Afterwards, use 'Relocate' in it.\n\nContinue?"},
     "msg.undo_confirm": {"pt": 'Desfazer a última execução?\nAs faixas voltam ao sítio, o que foi para a quarentena regressa e as tags originais são repostas.', "en": 'Undo the last run?\nFiles go back where they were, quarantined files return and the original tags are restored.'},
     "msg.close_running": {"pt": "Ainda está a trabalhar. Cancelar e fechar quando terminar o ficheiro atual?",
@@ -191,6 +193,8 @@ S = {
     "rep.archives_pending": {"pt": "compactados por extrair", "en": "archives to extract"},
     "rep.to_move": {"pt": "a mover para {x}", "en": "to move to {x}"},
     "rep.unreadable": {"pt": "faixas com tags estragadas (ficam onde estão)", "en": "tracks with damaged tags (left in place)"},
+    "rep.renamed": {"pt": "faixas novas com nome Artista - Título", "en": "new tracks renamed Artist - Title"},
+    "rep.rename_pending": {"pt": "faixas novas a renomear Artista - Título", "en": "new tracks to rename Artist - Title"},
     "rep.tracks": {"pt": "faixas", "en": "tracks"},
     "rep.dups_pending": {"pt": "repetidas a remover", "en": "duplicates to remove"},
     "rep.undo_returned": {"pt": "faixas devolvidas", "en": "files moved back"},

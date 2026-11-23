@@ -125,6 +125,64 @@ def test_full_run_and_undo():
     assert pl.undo_last(root)[0]["undo_nothing"] == 1
 
 
+def test_rename_packs():
+    root = os.path.join(TMP, "ren")
+    loose = make(os.path.join(root, "solta", "x_minha.wav"), 1, "A", "Mine", "Tech House")  # already in the library
+    taken = make(os.path.join(root, "House", "Tech House", "C - Taken.wav"), 3, "Z", "Other", "Tech House")
+    src = os.path.join(TMP, "renpack")
+    files = [make(os.path.join(src, "01-fisher-losing_it_(extended_mix)-tr.wav"), 1, "Fisher", "Losing It", "Tech House"),
+             make(os.path.join(src, "02 - sem tags.wav"), 1, None, None, "Tech House"),
+             make(os.path.join(src, "03-c-taken.wav"), 1, "C", "Taken", "Tech House"),  # name already used there
+             make(os.path.join(src, "04 - x.wav"), 1, "AC/DC", "What? Now", "Tech House")]
+    with zipfile.ZipFile(os.path.join(root, "pack.zip"), "w") as z:
+        for f in files:
+            z.write(f, os.path.basename(f))
+    make(os.path.join(root, pl.INBOX, "solta nova.wav"), 1, "Bob", "New One (Club Mix)", "Tech House")  # loose, not a pack
+    opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, rename_packs=True)
+    rep, errs = pl.Organizer(opts).run()
+    assert not errs, errs
+    th = os.path.join(root, "House", "Tech House")
+    names = sorted(os.listdir(th))
+    assert "Fisher - Losing It (Extended Mix).wav" in names, names
+    assert "AC DC - What Now.wav" in names, names
+    assert "Bob - New One (Club Mix).wav" in names, names
+    assert "02 - sem tags.wav" in names and "03-c-taken.wav" in names, names  # unsure / taken: original name
+    assert "x_minha.wav" in names, "a track already in the library is never renamed"
+    assert rep["renamed"] == 3, rep
+    assert os.path.exists(taken)
+    rep, errs = pl.undo_last(root)
+    assert not errs, errs
+    assert os.path.exists(loose) and not os.path.exists(os.path.join(th, "Fisher - Losing It (Extended Mix).wav"))
+    # default: off
+    assert pl.Options().rename_packs is False
+
+    # the Extended only said so in its old name: renaming must not make it lose against the Original
+    root = os.path.join(TMP, "ren2")
+    make(os.path.join(root, "House", "Tech House", "A - Track (Original Mix).wav"), 2, "A", "Track", "Tech House")
+    make(os.path.join(root, pl.INBOX, "a-track-extended_mix.wav"), 2, "A", "Track", "Tech House")
+    make(os.path.join(root, pl.INBOX, "b-song-extended.wav"), 1, "B", "Song", "Tech House")  # no way to carry it
+    org = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, rename_packs=True))
+    assert org.preview()["rename_pending"] == 1
+    rep, errs = org.run()
+    assert not errs, errs
+    names = sorted(os.listdir(os.path.join(root, "House", "Tech House")))
+    assert names == ["A - Track (Extended Mix).wav", "b-song-extended.wav"], names
+    # preview and run agree when the new name is taken
+    root = os.path.join(TMP, "ren3")
+    make(os.path.join(root, "House", "Tech House", "fisher - losing it.wav"), 3, "X", "Y", "Tech House")
+    make(os.path.join(root, pl.INBOX, "01.wav"), 1, "Fisher", "Losing It", "Tech House")
+    org = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, rename_packs=True))
+    assert "rename_pending" not in org.preview()
+    assert org.run()[0]["renamed"] == 0
+    # two new tracks wanting the same name: preview counts one, like the run
+    root = os.path.join(TMP, "ren4")
+    make(os.path.join(root, pl.INBOX, "x1.wav"), 1, "Q", "Same", "Tech House")
+    make(os.path.join(root, pl.INBOX, "x2.mp3".replace(".mp3", ".wav")), 3, "Q", "Same", "Tech House")
+    org = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, rename_packs=True))
+    assert org.preview()["rename_pending"] == 1
+    assert org.run()[0]["renamed"] == 1
+
+
 def test_quarantine_ownership():
     root = os.path.join(TMP, "qown")
     user_q = os.path.join(root, pl.QUARANTINE)
@@ -194,6 +252,7 @@ if __name__ == "__main__":
         test_lock()
         test_quarantine_ownership()
         test_full_run_and_undo()
+        test_rename_packs()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

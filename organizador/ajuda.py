@@ -51,6 +51,11 @@ HELP = {
   <li><b>Outros:</b> géneros com poucas faixas (Pop, Hardstyle, Rock…). O género verdadeiro fica na tag.</li>
   <li><b>BPM:</b> <code>Sem Genero</code> e <code>Outros</code> ficam divididos em pastas de BPM.</li>
   <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.</li>
+  <li><b>Nomes</b> (opção, desligada por defeito): as faixas novas ficam com o nome
+      <code>Artista - Título (Extended Mix)</code>: artista e título vêm das tags; a versão vem do título
+      e, se lá não estiver, do nome antigo do ficheiro. Novas são as que saem dos packs e as que
+      puseres na pasta <code>_entrada</code> dentro da biblioteca (cria-a se não existir). As que já tinhas mantêm o nome, para o rekordbox
+      não as perder. Se faltar artista ou título nas tags, ou o nome já existir na pasta, fica o nome original.</li>
 </ul>
 <h3>Enganei-me, e agora?</h3>
 <p><b>Desfazer última</b> tenta anular a última execução: devolve os ficheiros ao sítio onde estavam, tira da quarentena
@@ -98,6 +103,11 @@ HELP = {
   <li><b>Other:</b> genres with few tracks (Pop, Hardstyle, Rock…). The real genre stays in the tag.</li>
   <li><b>BPM:</b> <code>No Genre</code> and <code>Other</code> are split into BPM folders.</li>
   <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.</li>
+  <li><b>Names</b> (option, off by default): new tracks are named
+      <code>Artist - Title (Extended Mix)</code>: artist and title come from the tags; the version from the title,
+      or else from the old file name. New means extracted from packs or put in the
+      <code>_entrada</code> folder inside the library (create it if it isn't there). Tracks you already had keep their name, so rekordbox
+      doesn't lose them. Without artist or title in the tags, or if the name is taken in the folder, the original name stays.</li>
 </ul>
 <h3>Made a mistake?</h3>
 <p><b>Undo last run</b> tries to revert the last run: files go back where they were, removed duplicates and junk come out of

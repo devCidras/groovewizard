@@ -28,7 +28,7 @@ from .i18n import t
 from .online import Lookup
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
-                   normalize_genre, raw_genre, read_info, restore, search_terms, snapshot, track_key, version_label)
+                   normalize_genre, pack_file_name, raw_genre, read_info, restore, search_terms, snapshot, track_key, version_label)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
 for _old in ("Cratekeeper", "OrganizadorMusica"):  # names before v1.2 / v0.2
@@ -73,6 +73,7 @@ class Options:
     families: bool = True
     folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
     merge_versions: bool = True  # Radio Edit / Club Mix count as the same song as the Extended Mix
+    rename_packs: bool = False  # new tracks (packs / _entrada) get 'Artist - Title (Mix)' names; never tracks elsewhere
 
 
 class Cancelled(Exception):
@@ -223,13 +224,33 @@ class Organizer:
             return here == target or here.startswith(target + os.sep)
         return here == target
 
+    @staticmethod
+    def name_usable(src, dst_dir, name):
+        """A new name is used only when it is free in the target folder (any case) and the path stays short enough
+        for Windows without long-path support (the ' (1)' suffix move() may add included)."""
+        if not name or os.path.normcase(name) == os.path.normcase(os.path.basename(src)):
+            return False
+        full = os.path.join(dst_dir, name)
+        u16 = lambda s: len(s.encode("utf-16-le")) // 2  # Windows limits count UTF-16 units (emoji = 2)
+        return not os.path.exists(full) and u16(full) + 4 < 255 and u16(name) < 250
+
+    def new_name(self, p, info):
+        """Only new tracks are renamed: extracted from packs or dropped in _entrada by the user. They are not in
+        rekordbox/Serato yet, so no link breaks; tracks anywhere else keep their name."""
+        if not (self.opts.rename_packs and self._in_inbox(p)) or info["unreadable"]:
+            return None
+        return pack_file_name(p, info)
+
     def _in_inbox(self, p):
         return os.path.normcase(p).startswith(os.path.normcase(os.path.join(self.root, INBOX)) + os.sep)
 
-    def move(self, src, dst_dir):
-        """Never overwrites and never deletes a file it did not create itself."""
+    def move(self, src, dst_dir, name=None):
+        """Never overwrites and never deletes a file it did not create itself. `name`: new file name, used only
+        when free (taken: the file keeps its own name, so nothing gets a ' (1)' just for the rename)."""
         os.makedirs(dst_dir, exist_ok=True)
-        base, ext = os.path.splitext(os.path.join(dst_dir, os.path.basename(src)))
+        if not self.name_usable(src, dst_dir, name):
+            name = None
+        base, ext = os.path.splitext(os.path.join(dst_dir, name or os.path.basename(src)))
         dst, i = base + ext, 1
         while os.path.exists(dst):
             dst, i = f"{base} ({i}){ext}", i + 1
@@ -472,8 +493,14 @@ class Organizer:
                 self.errors.append(t("err.unreadable", path=p))
                 continue
             g = self.plan_genre(p, infos[p])
-            if not self.in_place(p, g) and self.move(p, self.target_dir(g)):
+            if self.in_place(p, g):
+                continue
+            name = self.new_name(p, infos[p])
+            dst = self.move(p, self.target_dir(g), name)
+            if dst:
                 self.report[f"moved|{self.label(g)}"] += 1
+                if name and os.path.basename(dst) == name:
+                    self.report["renamed"] += 1
         inbox = os.path.join(self.root, INBOX)
         if os.path.isdir(inbox):
             done = self._done_archives()
@@ -662,6 +689,7 @@ class Organizer:
 
     def _preview(self):
         rep = Counter()
+        planned = set()
         if self.opts.extract:
             rep["archives_pending"] = len(self.pending_archives())
         files = list(self.audio_files())
@@ -673,6 +701,12 @@ class Organizer:
             g = self.plan_genre(p, info)
             if not self.in_place(p, g):
                 rep[f"to_move|{self.label(g)}"] += 1
+                name = self.new_name(p, info)
+                if self.name_usable(p, self.target_dir(g), name):
+                    key = os.path.normcase(os.path.join(self.target_dir(g), name))
+                    if key not in planned:  # two new tracks wanting the same name: only the first gets it
+                        planned.add(key)
+                        rep["rename_pending"] += 1
             elif self.opts.write_tags and self._genre_decision(p, info["genre"])[0] is not None:
                 rep["tags_pending"] += 1
         rep["tracks"] = len(files)
