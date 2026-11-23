@@ -11,3 +11,4 @@ dist/
 .venv/
 installer/build/
 *.spec
+cratekeeper-self-test.log

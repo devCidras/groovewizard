@@ -19,4 +19,5 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process dist\Cratekeeper\Cratekeeper.exe -ArgumentList "--self-test" -PassThru -Wait
+          Get-Content cratekeeper-self-test.log
           if ($p.ExitCode -ne 0) { exit 1 }
