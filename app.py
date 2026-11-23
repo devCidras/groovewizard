@@ -22,7 +22,14 @@ def self_test():
         fh.write(result + "\n")
     if sys.stdout:
         print(result, flush=True)
-    os._exit(code)  # skip Qt teardown: the check is that the app starts, and teardown order can crash headless
+    # skip Qt teardown entirely (its DLL unload can crash headless and turn a pass into a failure)
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.TerminateProcess(k32.GetCurrentProcess(), code)
+    except Exception:
+        pass
+    os._exit(code)
 
 
 if __name__ == "__main__":
