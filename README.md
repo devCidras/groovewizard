@@ -11,7 +11,7 @@
   <a href="../../actions/workflows/testes.yml"><img src="../../actions/workflows/testes.yml/badge.svg" alt="testes"></a>
 </p>
 
-<p align="center"><img src="docs/captura.png" width="860" alt="Janela do Cratekeeper"></p>
+<p align="center"><img src="docs/1-principal.png" width="860" alt="Janela do Cratekeeper"></p>
 
 *English below.*
 
@@ -24,6 +24,16 @@
 5. **Separa por BPM** as pastas `Sem Genero` e `Outros` (`BPM 122-128`, `BPM 128-135`, …).
 6. **Corrige as tags**: grava o género na tag Genre (o rekordbox/Serato passam a mostrar o género certo) e tira nomes de sites de download do Álbum, Título, Comentário, etc.
 7. **Agrupa em pastas-mãe**: `House/Tech House`, `Techno/Hard Techno`, `Melodic & Indie/…`, `Bass & Breaks/…`, `Dance & Mainstage/…`.
+
+## Capturas
+
+| A organizar | No fim |
+|---|---|
+| <img src="docs/2-a-organizar.png" alt="A organizar, com o progresso de cada passo"> | <img src="docs/3-resumo.png" alt="Resumo no fim da organização"> |
+| **Ajuda dentro da app** | **Termos na primeira utilização (EN)** |
+| <img src="docs/4-ajuda.png" alt="Ajuda"> | <img src="docs/5-termos-en.png" alt="Termos e Condições em inglês"> |
+| **Aviso de versão nova** | **Interface em inglês** |
+| <img src="docs/6-atualizacao.png" alt="Barra de atualização"> | <img src="docs/7-english.png" alt="Interface em inglês"> |
 
 ## Seguro por defeito
 
@@ -41,7 +51,7 @@
 4. (Recomendado) cola as chaves grátis e carrega em **Verificar**:
    - Discogs: <https://www.discogs.com/settings/developers> → *Generate new token*
    - Last.fm: <https://www.last.fm/api/account/create> (só precisas da *API key*)
-5. **Fecha o rekordbox/Serato**, carrega em **Pré-visualizar** e depois em **Organizar**.
+5. **Fecha o rekordbox/Serato**, carrega em **Pré-visualizar** e depois em **Organizar**. Para deixar a correr de noite, liga **Desligar o PC no fim**: quando acabar, o PC desliga-se (com 60 s para cancelar).
 6. No rekordbox: *Ficheiro → Gerir faixas inexistentes → Auto Relocate* (escolhe a pasta), depois *Recarregar tag*.
 
 Ajuda completa dentro da app (botão **Ajuda** ou F1).

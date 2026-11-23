@@ -350,6 +350,15 @@ class Window(QMainWindow):
         self.btn_purge = QPushButton(t("btn.purge"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.purge_tip"))
         self.btn_purge.clicked.connect(self.purge)
         extra = QHBoxLayout()  # secondary actions on their own row: never squeezed by the main buttons
+        # per session on purpose: never shuts the PC down because it was left on from last time
+        self.shutdown_toggle = Toggle(False)
+        self.shutdown_toggle.setAccessibleName(t("shut.toggle"))
+        self.shutdown_toggle.setToolTip(t("shut.tip"))
+        self.shutdown_toggle.toggled.connect(self._shutdown_armed)
+        shut_label = QLabel(t("shut.toggle"), objectName="stepDesc")
+        shut_label.setBuddy(self.shutdown_toggle)
+        extra.addWidget(self.shutdown_toggle)
+        extra.addWidget(shut_label)
         extra.addStretch()
         extra.addWidget(self.btn_purge)
         extra.addWidget(self.btn_undo)
@@ -589,6 +598,7 @@ class Window(QMainWindow):
             sig.connect(self.thread.quit)
         self.thread.finished.connect(self._thread_done)
         self.busy(True)
+        self._last_kind = kind
         self.log.appendPlainText(f"— {t('log.kind.' + kind)}: {opts.root}")
         self.status.setText(t("status.starting"))
         self.thread.start()
@@ -629,6 +639,35 @@ class Window(QMainWindow):
             self.current_row = row
             row.set("running", f"{i:,} / {n:,}".replace(",", " "))
 
+    # ---------- shut down when done ----------
+
+    def _shutdown_armed(self, on):
+        if on and QMessageBox.question(self, t("shut.toggle"), t("shut.confirm")) != QMessageBox.Yes:
+            self.shutdown_toggle.setChecked(False)
+
+    def _maybe_shutdown(self, kind):
+        """After an Organize run (finished or stopped by an error, not cancelled by the user): 60 s to change your mind."""
+        if kind != "run" or not self.shutdown_toggle.isChecked():
+            return
+        self.shutdown_toggle.setChecked(False)
+        shutdown_pc(60)
+        box = QMessageBox(QMessageBox.Warning, t("shut.toggle"), t("shut.countdown", s=60), parent=self)
+        cancel = box.addButton(t("shut.cancel"), QMessageBox.RejectRole)
+        self._shutdown_left = 60
+
+        def tick():
+            self._shutdown_left -= 1
+            box.setText(t("shut.countdown", s=max(self._shutdown_left, 0)))
+
+        timer = QTimer(box, interval=1000)
+        timer.timeout.connect(tick)
+        timer.start()
+        box.exec()
+        timer.stop()
+        if box.clickedButton() is cancel:
+            cancel_shutdown()
+            self.log.appendPlainText(t("shut.cancelled"))
+
     def _thread_done(self):
         thread, worker = self.thread, self.worker
         self.thread = self.worker = None
@@ -637,6 +676,7 @@ class Window(QMainWindow):
         self.busy(False)
 
     def on_finished(self, kind, rep, errs):
+        QTimer.singleShot(0, lambda: self._maybe_shutdown(kind))  # after the results are on screen
         self.bar.setMaximum(1)
         self.bar.setValue(1)
         for _, r in self.step_rows:
@@ -656,6 +696,8 @@ class Window(QMainWindow):
             self.log.appendPlainText(t("log.preview_limits"))
 
     def on_failed(self, msg):
+        if msg != t("msg.cancelled"):  # stopped by an error: still shut down; cancelled by you: you're here
+            QTimer.singleShot(0, lambda: self._maybe_shutdown(self._last_kind))
         if self.current_row is not None:
             self.current_row.set("error")
         self.status.setText(t("status.stopped"))
@@ -703,6 +745,18 @@ def _excepthook(kind, value, tb):
         QMessageBox.critical(None, t("app.title"), msg[-1500:])
     except Exception:
         pass
+
+
+def shutdown_pc(seconds):
+    """Windows shuts down in `seconds`, forcing other apps closed (/f) so nothing blocks it overnight."""
+    import subprocess
+    subprocess.run(["shutdown", "/s", "/f", "/t", str(seconds), "/c", t("shut.windows_msg")],
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def cancel_shutdown():
+    import subprocess
+    subprocess.run(["shutdown", "/a"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def first_run():
