@@ -93,7 +93,7 @@ S = {
     "opt.merge_versions": {"pt": "Radio Edit / Club Mix contam como repetidas", "en": "Radio Edit / Club Mix count as duplicates"},
     "opt.merge_versions_d": {"pt": "Desligado: só Original e Extended são a mesma faixa; as outras versões ficam.",
                              "en": "Off: only Original and Extended are the same track; other versions are kept."},
-    "opt.delete_archives": {"pt": "Enviar compactados para a Reciclagem", "en": "Send archives to the Recycle Bin"},
+    "opt.delete_archives": {"pt": "Enviar compactados para a quarentena", "en": "Move archives to quarantine"},
     "opt.delete_archives_d": {"pt": "Depois de extraídos com sucesso.", "en": "After they were extracted successfully."},
     # actions
     "btn.run": {"pt": "Organizar", "en": "Organize"},

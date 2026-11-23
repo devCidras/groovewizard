@@ -227,6 +227,7 @@ class Window(QMainWindow):
             self.toggles[field] = self._option(lay, field, getattr(opts, field))
         ll.addWidget(c)
         ll.addStretch()
+        self.steps_card, self.left_lay = c, ll
 
         scroll = QScrollArea(widgetResizable=True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # content follows the column width
@@ -234,6 +235,19 @@ class Window(QMainWindow):
         scroll.setWidget(left)
         scroll.setMinimumWidth(440)
         cols.addWidget(scroll, 5)
+
+        # wide windows (full screen): the steps get a column of their own, so nothing needs scrolling
+        mid = QWidget()
+        self.mid_lay = QVBoxLayout(mid)
+        self.mid_lay.setContentsMargins(0, 0, 6, 0)
+        self.mid_lay.addStretch()
+        mid.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.mid_scroll = QScrollArea(widgetResizable=True)
+        self.mid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.mid_scroll.setWidget(mid)
+        self.mid_scroll.hide()
+        cols.addWidget(self.mid_scroll, 5)
+        self.wide = False
 
         # ---- right: actions + progress ----
         right = QVBoxLayout()
@@ -289,6 +303,26 @@ class Window(QMainWindow):
 
         self.setCentralWidget(root)
         self.setWindowTitle(t("app.title"))
+        self._fit_columns()
+
+    WIDE = 1500  # px: from here the steps move to a middle column
+
+    def _fit_columns(self):
+        wide = self.width() >= self.WIDE
+        if wide == self.wide:
+            return
+        self.wide = wide
+        if wide:
+            self.mid_lay.insertWidget(0, self.steps_card)
+            self.mid_scroll.show()
+        else:
+            self.left_lay.insertWidget(2, self.steps_card)  # back under Biblioteca + Fontes online
+            self.mid_scroll.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "mid_scroll"):
+            self._fit_columns()
 
     # ---------- building blocks ----------
 
