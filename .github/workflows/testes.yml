@@ -18,6 +18,7 @@ jobs:
       - name: packaged app starts
         shell: pwsh
         run: |
-          $p = Start-Process dist\Cratekeeper\Cratekeeper.exe -ArgumentList "--self-test" -PassThru -Wait
+          Start-Process dist\Cratekeeper\Cratekeeper.exe -ArgumentList "--self-test" -Wait
           Get-Content cratekeeper-self-test.log
-          if ($p.ExitCode -ne 0) { exit 1 }
+          # ExitCode of a windowed app is not reliable through Start-Process; the log line is
+          if (-not (Select-String -Quiet -Pattern "^self-test ok" -Path cratekeeper-self-test.log)) { exit 1 }
