@@ -40,6 +40,8 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 | A organizar | No fim |
 |---|---|
 | <img src="docs/2-a-organizar.png" alt="A organizar, com o progresso de cada passo"> | <img src="docs/3-resumo.png" alt="Resumo no fim da organização"> |
+| **Ver lista: o que vai mudar, faixa a faixa** | **Desfazer até uma execução antiga** |
+| <img src="docs/8-lista.png" alt="Lista do que vai mudar, com faixas desmarcadas"> | <img src="docs/9-desfazer.png" alt="Lista de execuções para desfazer"> |
 | **Ajuda dentro da app** | **Termos na primeira utilização (EN)** |
 | <img src="docs/4-ajuda.png" alt="Ajuda"> | <img src="docs/5-termos-en.png" alt="Termos e Condições em inglês"> |
 | **Aviso de versão nova** | **Interface em inglês** |

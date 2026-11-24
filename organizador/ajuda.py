@@ -74,6 +74,10 @@ HELP = {
 <h3>Relatório</h3>
 <p><b>Relatório</b> analisa a biblioteca sem mexer em nada e guarda uma lista (abre no Excel) das faixas sem
    artista ou título, sem género, MP3 abaixo de 320 kbps, com menos de 1 minuto ou com tags estragadas.</p>
+<h3>Faixas conhecidas</h3>
+<p>A app lembra-se das faixas que já viu, para saber quais são novas. Na primeira organização com a versão 1.5.0
+   lê um pedaço de cada faixa para a reconhecer depois, mesmo que a mudes de pasta à mão. Numa biblioteca grande
+   isto demora uns minutos a mais, uma só vez (passo <i>A registar as faixas conhecidas</i>).</p>
 <h3>Enganei-me, e agora?</h3>
 <p><b>Desfazer…</b> mostra as últimas execuções. Escolhes até onde voltar; as mais recentes do que essa também são
    desfeitas, da mais nova para a mais antiga. Cada execução desfeita devolve os ficheiros ao sítio onde estavam, tira da quarentena
@@ -144,6 +148,10 @@ HELP = {
 <h3>Report</h3>
 <p><b>Report</b> looks at the library without changing anything and saves a list (opens in Excel) of tracks without
    artist or title, without genre, MP3 under 320 kbps, shorter than 1 minute or with damaged tags.</p>
+<h3>Known tracks</h3>
+<p>The app remembers the tracks it has seen, to tell which ones are new. The first time you organize with version 1.5.0
+   it reads a piece of every track so it can recognise it later, even if you move it by hand. In a big library this
+   takes a few extra minutes, only once (step <i>Recording known tracks</i>).</p>
 <h3>Made a mistake?</h3>
 <p><b>Undo…</b> lists the recent runs. Choose how far back to go; runs newer than that one are undone too, newest
    first. Each undone run puts files back where they were, takes removed duplicates and junk out of
