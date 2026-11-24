@@ -162,6 +162,13 @@ def too_broad(root):
     return False
 
 
+def _content_fp(path, size):
+    """'size:hash' of 32 KB from the middle of the file: the music, not the tags at its ends."""
+    with open(path, "rb") as fh:
+        fh.seek(max(0, size // 2 - 16384))
+        return f"{size}:{hashlib.sha1(fh.read(32768)).hexdigest()[:20]}"
+
+
 def protectable(root, dirs):
     """The protected folders that count (normcase): inside the library, not the library itself and not the app's own
     _entrada / _quarentena (it must be able to extract, quarantine, undo and empty them)."""
@@ -217,6 +224,13 @@ class Organizer:
         self._inventory_path = os.path.join(self.data, INVENTORY)
         inv = _read_json(self._inventory_path, None)  # tracks seen in earlier runs; None before the first run
         self.known = None if not isinstance(inv, dict) else (set(inv.get("paths", [])), set(inv.get("sizes", [])))
+        inv = inv if isinstance(inv, dict) else {}
+        # content fingerprints (1.5.0+): a never-seen path with a known size is known only if its content matches.
+        # Sizes recorded before fingerprints existed ('legacy') still count as known on their own (safe side).
+        self._has_fps = "fps" in inv
+        self._fps = set(inv.get("fps", []))
+        self._legacy_sizes = set(inv.get("legacy_sizes", []))
+        self._fp_cache = inv.get("cache", {}) if isinstance(inv.get("cache"), dict) else {}  # rel -> [size, mtime, fp]
         self._pending = set()  # never-seen tracks not settled yet (no answer, or the rename failed): stay new
         self._start = []
         self._settled = []
@@ -292,9 +306,26 @@ class Organizer:
         if self._rel(p) in paths:
             return False
         try:
-            return os.path.getsize(p) not in sizes
+            size = os.path.getsize(p)
+            if size not in sizes:
+                return True
+            if not self._has_fps or size in self._legacy_sizes:
+                return False  # size known from before fingerprints were kept: can't tell, so known (safe side)
+            return self._fingerprint(p) not in self._fps  # same size, different music: a new track
         except OSError:
             return False
+
+    def _fingerprint(self, p):
+        """'size:hash' of 32 KB from the middle of the file (the music, not the tags at its ends). Cached by path,
+        size and modified time: only new or changed files are read."""
+        st = os.stat(p)
+        rel = self._rel(p)
+        c = self._fp_cache.get(rel)
+        if isinstance(c, list) and len(c) == 3 and c[0] == st.st_size and c[1] == st.st_mtime_ns:
+            return c[2]
+        fp = _content_fp(p, st.st_size)
+        self._fp_cache[rel] = [st.st_size, st.st_mtime_ns, fp]
+        return fp
 
     def _wanted_names(self, p, info, known):
         """New names for one track, best first. New tracks: 'Artist - Title (Mix)' (option), then the same name
@@ -363,8 +394,9 @@ class Organizer:
 
     def _identities(self, end=False):
         """(relative path, size) of every track not waiting to be renamed.
-        shortcut: path OR size counts as known (no content hash, too slow for big libraries); this can only miss a
-        new track (never asked about), never rename a known one; a content fingerprint would close that gap."""
+        A known path, or a known size whose content fingerprint matches (see is_new), counts as known.
+        shortcut: sizes recorded before 1.5.0 have no fingerprint and still count as known on their own; this can only
+        miss a new track (never asked about), never rename a known one."""
         out = []
         inbox = os.path.normcase(os.path.join(self.root, INBOX)) + os.sep
         for p in self.audio_files():
@@ -414,12 +446,36 @@ class Organizer:
         known, except never-seen ones still waiting for an answer or whose rename failed (asked again next time).
         Growing only means Undo, cancel or a half-done Undo can never make an old track look new."""
         paths, sizes = self.known if self.known is not None else (set(), set())
+        # first save with fingerprints: every size known so far stays 'legacy' (known on its own) for good, because a
+        # known track that is not here right now (or shares a size with one that is) has no fingerprint to compare
+        legacy = set(self._legacy_sizes) | (set(sizes) if self.known is not None and not self._has_fps else set())
         paths, sizes = set(paths), set(sizes)
-        for rel, size in (self._start + self._settled + self._identities(end=True) + self._protected_identities()
-                          + self._unticked_identities()):
+        fps, cache = set(self._fps), {}
+        ids = (self._start + self._settled + self._identities(end=True) + self._protected_identities()
+               + self._unticked_identities())
+        for i, (rel, size) in enumerate(ids, 1):
             paths.add(rel)
             sizes.add(size)
-        _write_json(self._inventory_path, {"paths": sorted(paths), "sizes": sorted(sizes)})
+            if i % 200 == 0:
+                self.progress("inventory", i, len(ids), "")  # first 1.5 run reads every track once: show it
+            p = os.path.join(self.root, rel)
+            if not os.path.exists(p):
+                q = os.path.join(self.qdir, rel)  # removed by this run: its copy waits in quarantine
+                try:
+                    if os.path.getsize(q) == size:
+                        fps.add(_content_fp(q, size))  # restored somewhere else later: still known
+                except OSError:
+                    pass  # moved during the run: its new place is in ids too
+                continue
+            try:
+                if os.path.getsize(p) != size:  # changed or replaced during the run
+                    raise OSError
+                fps.add(self._fingerprint(p))
+                cache[rel] = self._fp_cache[rel]
+            except (OSError, KeyError):
+                legacy.add(size)  # here but no fingerprint: its size alone must keep counting as known
+        _write_json(self._inventory_path, {"paths": sorted(paths), "sizes": sorted(sizes), "fps": sorted(fps),
+                                           "legacy_sizes": sorted(legacy), "cache": cache})
 
     def _in_inbox(self, p):
         return os.path.normcase(p).startswith(os.path.normcase(os.path.join(self.root, INBOX)) + os.sep)
@@ -509,6 +565,7 @@ class Organizer:
         """Original tags go to the run log first; the edit is made on a copy that must reopen with the same
         length before it replaces the original, so a failed save can never damage the track."""
         self._write_log("tags", p, snapshot(p))
+        self._fp_cache.pop(self._rel(p), None)  # content changes: never reuse its old fingerprint (coarse mtimes)
         before = read_info(p)["duration"]
         tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"  # same extension: mutagen picks the format by it
         shutil.copy2(p, tmp)

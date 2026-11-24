@@ -75,6 +75,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 - A deteção de repetidas e a procura online são estimativas: revê a pré-visualização e, se tiveres dúvidas, a pasta `_quarentena` antes de a esvaziar.
 - No instalador, o BPM vem só da tag; faixas sem BPM na tag vão para `BPM desconhecido`.
 - Cancelar a meio deixa feito o que já foi feito (e pode ser desfeito).
+- Na primeira organização com a versão 1.5.0 a app lê um pedaço de cada faixa para a reconhecer depois (16 mil faixas num disco rígido: uns 5 minutos, uma só vez).
 - Desinstalar não apaga as definições em `%APPDATA%\GrooveWizard`.
 
 ## Perguntas frequentes

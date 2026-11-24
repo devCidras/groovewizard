@@ -490,6 +490,50 @@ def test_site_names():
     assert os.path.exists(old)  # Undo puts the old name back
 
 
+def test_same_size_new_track():
+    """A new track with exactly the size of a known one is new if its music differs; a known one moved by hand isn't."""
+    import random
+
+    def music(path, seed, artist, title):
+        make(path, 2, artist, title, "Techno")
+        with open(path, "r+b") as fh:  # same length and tags, different audio in the middle
+            fh.seek(4000)
+            fh.write(random.Random(seed).randbytes(20000))
+        return path
+
+    root = os.path.join(TMP, "fps")
+    a = music(os.path.join(root, "Techno", "Techno", "A - One.wav"), 1, "A", "One")
+    opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, only_new=True)
+    pl.Organizer(opts).run()  # first run: list of known tracks with fingerprints
+    pl.Organizer(opts).run()
+    moved = os.path.join(root, "pasta", "A - One.wav")
+    os.makedirs(os.path.dirname(moved))
+    os.rename(a, moved)  # moved by hand: same music -> still known
+    b = music(os.path.join(root, "B - Two.wav"), 2, "B", "Two")  # same size, other music -> new
+    assert os.path.getsize(b) == os.path.getsize(moved)
+    org = pl.Organizer(opts)
+    assert not org.is_new(moved) and org.is_new(b)
+    pl.Organizer(opts).run()
+    assert os.path.exists(moved) and os.path.exists(os.path.join(root, "Techno", "Techno", "B - Two.wav"))
+    # an inventory from before fingerprints: a known size alone still counts as known (safe side)
+    inv = pl._read_json(org._inventory_path, {})
+    pl._write_json(org._inventory_path, {"paths": [], "sizes": inv["sizes"]})
+    assert not pl.Organizer(opts).is_new(moved)
+    # migrating such an inventory: a known track that is away during the first 1.5 run (same size as one that is
+    # here) must still be known when it comes back somewhere else
+    away = os.path.join(TMP, "fora.wav")
+    os.rename(moved, away)
+    c = music(os.path.join(root, "C - Three.wav"), 3, "C", "Thr")  # same size, present during the migration run
+    assert os.path.getsize(c) == os.path.getsize(away)
+    pl._write_json(org._inventory_path, {"paths": [org._rel(c)], "sizes": inv["sizes"]})
+    opts.only_new = False
+    pl.Organizer(opts).run()  # migration: fingerprints written
+    back = os.path.join(root, "outra", "A - One.wav")
+    os.makedirs(os.path.dirname(back))
+    os.rename(away, back)
+    assert not pl.Organizer(opts).is_new(back), "a known track became new after the migration"
+
+
 def test_unticked_on_first_run_stay_known():
     root = os.path.join(TMP, "untick1")
     old = make(os.path.join(root, "Misc", "A - One.wav"), 9, "A", "One", "House")  # unique length: known by path only
@@ -518,6 +562,7 @@ if __name__ == "__main__":
         test_undo_history_and_report()
         test_site_names()
         test_unticked_on_first_run_stay_known()
+        test_same_size_new_track()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

@@ -185,6 +185,7 @@ S = {
     "step.tags": {"pt": "Corrigir tags", "en": "Fixing tags"},
     "step.preview": {"pt": "Pré-visualizar", "en": "Previewing"},
     "step.undo": {"pt": "Desfazer", "en": "Undoing"},
+    "step.inventory": {"pt": "A registar as faixas conhecidas", "en": "Recording known tracks"},
     # report
     "rep.archives_extracted": {"pt": "compactados extraídos", "en": "archives extracted"},
     "rep.archives_trashed": {"pt": 'compactados para a quarentena', "en": 'archives moved to quarantine'},
