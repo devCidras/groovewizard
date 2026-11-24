@@ -98,6 +98,7 @@ S = {
     "covers.title": {"pt": "Capas repetidas", "en": "Repeated covers"},
     "covers.hint": {"pt": "Estas capas aparecem em vários artistas. Marca só as que são publicidade ou genéricas: com 'Trocar capas de sites' ligado, saem na próxima organização. As compilações também aparecem aqui; deixa-as por marcar. As que a app já conhece não aparecem.", "en": "These covers are used by several artists. Tick only the ones that are ads or generic: with 'Replace site covers' on, they come out next time you organize. Compilations show up here too; leave them unticked. The ones the app already knows aren't shown."},
     "covers.item": {"pt": "{n} faixas, {artists} artistas", "en": "{n} tracks, {artists} artists"},
+    "covers.marked": {"pt": "marcada por ti", "en": "ticked by you"},
     "covers.empty": {"pt": "Não há capas repetidas por rever.", "en": "There are no repeated covers to review."},
     "covers.save": {"pt": "Guardar", "en": "Save"},
     "log.kind.covers_scan": {"pt": "Ver capas repetidas", "en": "See repeated covers"},

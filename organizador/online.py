@@ -93,10 +93,10 @@ class Cached:
                     return None
                 return data
             except urllib.error.HTTPError as e:
-                if e.code in (401, 403):
-                    return None  # bad key: not cached as 'no result', tried again once the key is fixed
-                if e.code not in (429, 500, 502, 503, 504):
-                    return {}  # e.g. 404: really nothing there
+                if e.code == 404:
+                    return {}  # really nothing there
+                if e.code not in (408, 429, 500, 502, 503, 504):
+                    return None  # bad key or request: not cached as 'no result', asked again next time
             except (OSError, http.client.HTTPException, ValueError):  # dropped connection, bad data, timeout
                 pass
         return None  # failed: not cached, retried next run

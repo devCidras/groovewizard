@@ -192,6 +192,12 @@ def _descend(dp, d, root):
     return d.lower() not in SKIP_DIRS
 
 
+def _batched(ex, fn, files, size=64):
+    """(file, fn(file)) in parallel, a few at a time: results with images in them never pile up in memory."""
+    for i in range(0, len(files), size):
+        yield from zip(files[i:i + size], ex.map(fn, files[i:i + size]))
+
+
 def protectable(root, dirs):
     """The protected folders that count (normcase): inside the library, not the library itself and not the app's own
     _entrada / _quarentena (it must be able to extract, quarantine, undo and empty them)."""
@@ -962,16 +968,16 @@ class Organizer:
     # ---------- tags ----------
 
     def site_cover_map(self, files, infos):
-        """{track: [images that are a site's ad or generic store art]}."""
+        """{track: ids of its images that are a site's ad or generic store art} (the images themselves are not kept)."""
         site = SiteCovers(MARKED_COVERS)
         files = [p for p in files if not infos[p]["unreadable"] and infos[p]["cover"]]
         out = {}
         ex = ThreadPoolExecutor(8)
         try:
-            for i, (p, pics) in enumerate(zip(files, ex.map(pictures, files)), 1):
+            for i, (p, pics) in enumerate(_batched(ex, pictures, files), 1):
                 if i % 50 == 0 or i == len(files):
                     self._tick("covers", i, len(files), os.path.basename(p))
-                bad = [d for d in pics if site.is_site(d)]
+                bad = [cover_digest(d) for d in pics if site.is_site(d)]
                 if bad:
                     out[p] = bad
         finally:
@@ -996,10 +1002,8 @@ class Organizer:
                 drop = bad.get(p, [])
                 try:
                     data, asked = None, True
-                    if not drop or len(pictures(p)) == len(drop):  # with a real cover left there is nothing to look up
-                        data, asked = self._find_cover(p, sources)
-                    if data and site.is_site(data):
-                        data = None
+                    if not drop or all(cover_digest(d) in drop for d in pictures(p)):  # no real cover left
+                        data, asked = self._find_cover(p, sources, site)
                     if drop and not asked:
                         self.report["site_covers_later"] += 1  # no answer from the internet: next time
                         continue
@@ -1018,30 +1022,31 @@ class Organizer:
                 src.save()
         self.report = +self.report  # no zero lines in the summary
 
-    def _find_cover(self, p, sources):
-        """(image or None, True when every source answered)."""
+    def _find_cover(self, p, sources, site):
+        """(image or None, True when every source answered). Generic art from a source doesn't count as an answer."""
         terms = search_terms(p)
         asked = True
         for src in sources if terms else []:
             url = src.cover(*terms)
             data = src.image(url, os.path.join(self.data, "capas")) if url else None
-            if data:
+            if data and not site.is_site(data):
                 return data, True
-            if url is None or url:  # couldn't ask, or the image didn't come
+            if url is None or (url and not data):  # couldn't ask, or the image didn't come
                 asked = False
         if self.cancel.is_set():
             raise Cancelled()
         return None, asked
 
     def _change_cover(self, p, drop, data):
-        """Takes the `drop` images out and puts `data` in (only if no other cover is left), on a verified copy; logged
+        """Takes the images with the `drop` ids out and puts `data` in (only if no other cover is left), on a verified copy; logged
         first, with the removed images kept, so Undo puts everything back. False when there was nothing to change."""
         tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"
         rows = []
         try:
             shutil.copy2(p, tmp)
             before = read_info(tmp)["duration"]
-            gone = [d for d in drop if remove_cover(tmp, cover_digest(d))]
+            inside = {cover_digest(d): d for d in pictures(tmp)}
+            gone = [d for k, d in inside.items() if k in drop and remove_cover(tmp, k)]
             left = len(pictures(tmp))
             data = None if left else data
             if not gone and not data:
@@ -1086,9 +1091,9 @@ class Organizer:
         def covers():
             ex = ThreadPoolExecutor(8)
             try:
-                for i, found in enumerate(ex.map(one, files), 1):
+                for i, (p, found) in enumerate(_batched(ex, one, files), 1):
                     if i % 50 == 0 or i == len(files):
-                        self._tick("covers_scan", i, len(files), os.path.basename(files[i - 1]))
+                        self._tick("covers_scan", i, len(files), os.path.basename(p))
                     yield from found
             finally:
                 ex.shutdown(wait=True, cancel_futures=True)

@@ -7,7 +7,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
-from .capas import same
+from .capas import preview, same
 from .i18n import t
 from .theme import C
 
@@ -188,16 +188,14 @@ class CoversDialog(QDialog):
         self.list.setGridSize(QSize(170, 200))
         self.list.setResizeMode(QListWidget.Adjust)
         self.list.setMovement(QListWidget.Static)
-        self.found = found
-        for f, data, n, artists in found:
-            pm = QPixmap()
-            pm.loadFromData(data)
-            it = QListWidgetItem(QIcon(pm.scaled(140, 140, Qt.KeepAspectRatio, Qt.SmoothTransformation)),
-                                 t("covers.item", n=n, artists=artists), self.list)
+        self.found = list(found)
+        # marked before and no longer repeated here: shown too, so it can be unticked
+        self.found += [(m, preview(m), 0, 0) for m in marked if not any(same(f, m) for f, *_ in found)]
+        for f, small, n, artists in self.found:
+            pm = QPixmap.fromImage(small).scaled(140, 140, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            it = QListWidgetItem(QIcon(pm), t("covers.item", n=n, artists=artists) if n else t("covers.marked"), self.list)
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked if any(same(f, m) for m in marked) else Qt.Unchecked)
-        # marked before but not in this library now: kept
-        self.kept = [m for m in marked if not any(same(f, m) for f, *_ in found)]
         lay.addWidget(self.list, 1)
         row = QHBoxLayout()
         row.addStretch()
@@ -209,5 +207,4 @@ class CoversDialog(QDialog):
         lay.addLayout(row)
 
     def marked(self):
-        return self.kept + [f for i, (f, *_) in enumerate(self.found)
-                            if self.list.item(i).checkState() == Qt.Checked]
+        return [f for i, (f, *_) in enumerate(self.found) if self.list.item(i).checkState() == Qt.Checked]

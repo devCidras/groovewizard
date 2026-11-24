@@ -217,7 +217,8 @@ def put_back_cover(path, data):
     from mutagen.id3 import APIC
     from mutagen.mp4 import MP4Cover
     png = data[:8] == b"\x89PNG\r\n\x1a\n"
-    mime = "image/png" if png else "image/jpeg"
+    mime = ("image/png" if png else "image/gif" if data[:4] == b"GIF8"
+            else "image/webp" if data[8:12] == b"WEBP" else "image/jpeg")
     f = mutagen.File(path)
     if f is None:
         raise ValueError("formato nao reconhecido")

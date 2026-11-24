@@ -669,8 +669,10 @@ def test_site_covers():
     ad, ad_small = image("black", (.2, .4, .6, .2)), image("black", (.2, .4, .6, .2), 90, "PNG")  # same ad, other file
     logo = image("black", (.4, .1, .2, .6))  # a real label cover, also white on black
     found = image("red", (.1, .1, .3, .3))
+    text = image("black", (.2, .4, .55, .2))  # same background, slightly different text: not the same cover
     f = capas.fingerprint(ad)
     assert capas.same(f, capas.fingerprint(ad_small)) and not capas.same(f, capas.fingerprint(logo))
+    assert not capas.same(f, capas.fingerprint(text))
     assert capas.fingerprint(b"not an image") is None
     shipped = capas.SiteCovers("none").shipped
     assert len(shipped) >= 30
@@ -690,13 +692,17 @@ def test_site_covers():
             return answer[artist]  # KeyError (an error in the report) if C or D were looked up
 
         def image(self, url, folder):
-            return found
+            return ad_small  # Deezer answers with the ad itself: Discogs is still asked
 
         def save(self):
             pass
 
-    real = pl.Deezer
-    pl.Deezer = Fake
+    class FakeDiscogs(Fake):
+        def image(self, url, folder):
+            return found
+
+    real = pl.Deezer, pl.Discogs
+    pl.Deezer, pl.Discogs = Fake, FakeDiscogs
     try:
         capas.SiteCovers(pl.MARKED_COVERS).save_marked([f])
         opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, site_covers=True)
@@ -704,7 +710,7 @@ def test_site_covers():
         assert org.preview()["site_covers_pending"] == 4
         assert {p for k, p, _ in org.plan if k == "site_cover"} == {a, b, d, e}
         before = {p: [cover_digest(x) for x in pictures(p)] for p in (a, b, c, d, e)}
-        rep, errs = pl.Organizer(opts).run()
+        rep, errs = pl.Organizer(opts, keys={"discogs_token": "x"}).run()
         assert not errs and (rep["site_covers_out"], rep["covers_added"], rep["site_covers_later"]) == (3, 1, 1), (rep, errs)
         assert [pictures(p) for p in (a, b, c, d, e)] == [[found], [], [logo], [logo], [ad]]
         rep, errs = pl.undo_last(root)
@@ -717,8 +723,23 @@ def test_site_covers():
         groups = capas.repeated(many, capas.SiteCovers("none"))
         assert len(groups) == 1 and groups[0][2] == 6 and groups[0][3] == 6, groups
     finally:
-        pl.Deezer = real
+        pl.Deezer, pl.Discogs = real
         os.remove(pl.MARKED_COVERS)
+    # a timeout / bad request is 'could not ask', only 404 is 'nothing there'
+    import urllib.error
+    import urllib.request
+    from organizador import online
+    real_open, code = urllib.request.urlopen, [0]
+
+    def fail(*a, **k):
+        raise urllib.error.HTTPError("u", code[0], "", {}, None)
+    urllib.request.urlopen = fail
+    try:
+        dz = online.Deezer(TMP)
+        for code[0], answer in ((400, None), (403, None), (404, "")):
+            assert dz.cover("A", f"T{code[0]}") == answer, code
+    finally:
+        urllib.request.urlopen = real_open
 
 
 def test_review_fixes():

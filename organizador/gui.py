@@ -886,7 +886,7 @@ class Window(QMainWindow):
     def _covers_ready(self, found):
         from .janelas import CoversDialog
         site = SiteCovers(MARKED_COVERS)
-        if not found:
+        if not found and not site.marked:
             QMessageBox.information(self, t("covers.title"), t("covers.empty"))
             return
         d = CoversDialog(found, site.marked, self)
