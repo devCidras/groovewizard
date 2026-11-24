@@ -55,11 +55,12 @@ HELP = {
 </ul>
 <h3>Nomes das faixas</h3>
 <ul>
-  <li>Nas <b>faixas novas</b> o site sai também do nome do ficheiro. Com a opção <i>Pôr nomes Artista - Título</i>,
+  <li>Nas <b>faixas novas</b> o site e o número de faixa saem também do nome do ficheiro
+      (<code>05. Artista - Título</code> passa a <code>Artista - Título</code>). Com a opção <i>Pôr nomes Artista - Título</i>,
       ficam por exemplo <code>Fisher - Losing It (Extended Mix)</code>.</li>
   <li>As faixas dos packs mudam de nome logo. Outras faixas novas (que puseste soltas na pasta) só depois de
       confirmares, porque podem já estar no rekordbox.</li>
-  <li>As <b>faixas que já tinhas</b> nunca mudam de nome, a não ser que ligues <i>Tirar sites do nome das faixas
+  <li>As <b>faixas que já tinhas</b> nunca mudam de nome, a não ser que ligues <i>Limpar o nome das faixas
       antigas</i>. Nesse caso a app pergunta antes; depois tens de as importar outra vez no rekordbox (perdes os
       cues dessas faixas).</li>
   <li>Dica: organiza <b>antes</b> de importares as faixas novas no rekordbox.</li>
@@ -125,11 +126,12 @@ HELP = {
 </ul>
 <h3>Track names</h3>
 <ul>
-  <li>For <b>new tracks</b> the site also comes out of the file name. With the option <i>Name new tracks Artist -
+  <li>For <b>new tracks</b> the site and the track number also come out of the file name
+      (<code>05. Artist - Title</code> becomes <code>Artist - Title</code>). With the option <i>Name new tracks Artist -
       Title</i> they become, for example, <code>Fisher - Losing It (Extended Mix)</code>.</li>
   <li>Tracks from packs are renamed right away. Other new tracks (that you dropped in the folder) only after you
       confirm, because they may already be in rekordbox.</li>
-  <li><b>Tracks you already had</b> never change name, unless you turn on <i>Remove sites from old tracks' names</i>.
+  <li><b>Tracks you already had</b> never change name, unless you turn on <i>Clean up old tracks' names</i>.
       Then the app asks first; afterwards you have to import them again in rekordbox (their cues are lost).</li>
   <li>Tip: organize <b>before</b> importing new tracks into rekordbox.</li>
 </ul>

@@ -150,9 +150,10 @@ def test_rename_packs():
     assert "Fisher - Losing It (Extended Mix).wav" in names, names
     assert "AC DC - What Now.wav" in names, names
     assert "Bob - New One (Club Mix).wav" in names, names
-    assert "02 - sem tags.wav" in names and "03-c-taken.wav" in names, names  # unsure / taken: original name
+    # unsure / taken: the original name, only without the track number
+    assert "sem tags.wav" in names and "c-taken.wav" in names, names
     assert "x_minha.wav" in names, "a track already in the library is never renamed"
-    assert rep["renamed"] == 3, rep
+    assert rep["renamed"] == 5, rep  # 3 Artist - Title + 2 that only lost their track number
     assert os.path.exists(taken)
     rep, errs = pl.undo_last(root)
     assert not errs, errs
@@ -466,6 +467,32 @@ def test_site_names():
     assert site_free_name("Carla - Red Ambition-www.groovytunes.org.wav") == "Carla - Red Ambition.wav"
     assert site_free_name("DAMEN - Games (Original Mix) [4DJsonline.com] .aiff") == "DAMEN - Games (Original Mix).aiff"
     assert site_free_name("Love.me (Extended Mix).wav") is None and site_free_name("www.site.com.wav") is None
+    from organizador.tags import clean_file_name as cfn
+    assert cfn("05. Kaufmann (DE) - In Control.mp3", "Kaufmann (DE)") == "Kaufmann (DE) - In Control.mp3"
+    assert cfn("01. A - B - www.djsoundtop.com.mp3", "A") == "A - B.mp3"
+    assert cfn("02 - 6 Sense - X.wav", "6 Sense") == "6 Sense - X.wav"
+    for keep, art in (("3.14 (AR) - Peter.mp3", "3.14 (AR)"), ("808 State - Cubik.mp3", "808 State"),
+                      ("6 Sense - X.wav", "6 Sense"), ("1-2-3 Go.mp3", ""), ("936 - Pasion.mp3", "936")):
+        assert cfn(keep, art) is None, keep  # the number belongs to the artist / isn't a track number
+    assert cfn("[Live] 01 - A - B.mp3", "A") == "[Live] A - B.mp3"  # only the number comes off
+    assert cfn("01 - Баста - Песня.mp3", "Баста") == "Баста - Песня.mp3"  # any script
+    assert cfn("www.site.com - 05. A - B.mp3", "A") == "A - B.mp3"
+    # a track you already had, put back in _entrada by hand: asked about like any old track, not renamed silently
+    root = os.path.join(TMP, "entrada_antiga")
+    import random
+    old = make(os.path.join(root, "Techno", "Techno", "07. Z - Old.wav"), 2, "Z", "Old", "Techno")
+    with open(old, "r+b") as fh:
+        fh.seek(4000)
+        fh.write(random.Random(9).randbytes(20000))
+    o = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)
+    pl.Organizer(o).run()
+    pl.Organizer(o).run()  # fingerprints recorded
+    back = os.path.join(root, pl.INBOX, "07. Z - Old.wav")
+    os.makedirs(os.path.dirname(back))
+    os.rename(old, back)
+    asked2 = []
+    pl.Organizer(o, ask_rename=lambda items, kind="new": asked2.append(kind) or False).run()
+    assert os.path.exists(os.path.join(root, "Techno", "Techno", "07. Z - Old.wav")) and asked2 == []
     assert site_free_name("Artist - Love.me.wav") is None and site_free_name("Artist  -  Title.wav") is None
     assert site_free_name("Clouds - Mutate On-Site-www.groovytunes.org.mp3") == "Clouds - Mutate On-Site.mp3"
     assert site_free_name("A - Title-www.site.com (Extended Mix).mp3") == "A - Title (Extended Mix).mp3"

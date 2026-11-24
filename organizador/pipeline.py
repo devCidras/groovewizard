@@ -28,7 +28,7 @@ from .i18n import t
 from .online import Lookup
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
-                   normalize_genre, pack_file_name, raw_genre, read_info, restore, search_terms, site_free_name, snapshot,
+                   normalize_genre, pack_file_name, raw_genre, read_info, restore, search_terms, clean_file_name, snapshot,
                    track_key, version_label)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
@@ -326,6 +326,16 @@ class Organizer:
         except OSError:
             return False
 
+    def _known_content(self, p):
+        """Music the app has seen before (same fingerprint), wherever the file is now. A matching fingerprint is enough;
+        a size known only from before fingerprints is not (a pack track is never held back by an old size alone)."""
+        if self.known is None or not self._has_fps:
+            return False
+        try:
+            return os.path.getsize(p) in self.known[1] and self._fingerprint(p) in self._fps
+        except OSError:
+            return False
+
     def _fingerprint(self, p):
         """'size:hash' of 32 KB from the middle of the file (the music, not the tags at its ends). Cached by path,
         size and modified time: only new or changed files are read."""
@@ -340,12 +350,12 @@ class Organizer:
 
     def _wanted_names(self, p, info, known):
         """New names for one track, best first. New tracks: 'Artist - Title (Mix)' (option), then the same name
-        without the download site (when sites are cleaned), used if the first is taken. Known tracks: only the site
-        comes out, and only with site_names."""
+        without the download site and track number (when names are cleaned), used if the first is taken. Known
+        tracks: only the site and number come out, and only with site_names."""
         if known:
-            return [site_free_name(p)] if self.opts.site_names else []
+            return [clean_file_name(p, info["artist"])] if self.opts.site_names else []
         return [n for n in (pack_file_name(p, info) if self.opts.rename_packs else None,
-                            site_free_name(p) if self.opts.clean_sites else None) if n]
+                            clean_file_name(p, info["artist"]) if self.opts.clean_sites else None) if n]
 
     def rename_plan(self, files, infos):
         """(names for _entrada tracks, names for never-seen tracks elsewhere, site-free names for tracks you already
@@ -359,7 +369,8 @@ class Organizer:
             if info["unreadable"]:
                 continue
             if self._in_inbox(p):
-                group = inbox
+                # a track you already had, put in _entrada by hand: rekordbox may have it, so it's asked about
+                group = sites if self._known_content(p) else inbox
             elif self.is_new(p):
                 group = outside
             else:
@@ -765,7 +776,7 @@ class Organizer:
         inbox_names, outside, sites = self.rename_plan(files, infos)
         self._pending -= {os.path.normcase(p) for p in files if p not in outside}  # nothing to ask about them
         # without 'Artist - Title' names only the site comes out: the question must say so
-        kind = "new_sites" if all(n == site_free_name(p) for p, n in outside.items()) else "new"
+        kind = "new_sites" if all(n == clean_file_name(p, infos[p]["artist"]) for p, n in outside.items()) else "new"
         if outside and not (self.ask_rename and self.ask_rename(sorted(outside.items()), kind)):
             for p in outside:  # "No": known from now on, never asked again
                 self._settle(p)

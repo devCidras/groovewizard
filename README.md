@@ -27,7 +27,7 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 4. **Procura o género online** das faixas que não o têm (Discogs, Last.fm e, se quiseres, MusicBrainz). É uma estimativa, não uma garantia.
 5. **Separa por BPM** as faixas sem género (`BPM 122-128`, `BPM 128-135`, …).
 6. **Limpa as tags**: grava o género dentro da faixa (o rekordbox / Serato passam a mostrá-lo) e tira nomes de sites como `www.djsoundtop.com` do título, álbum e comentários.
-7. **Limpa os nomes das faixas novas**: tira o site do nome do ficheiro e, se quiseres, dá o nome `Artista - Título (Extended Mix)`. As faixas dos packs mudam logo; outras faixas novas só depois de confirmares. As que já tinhas não mudam de nome (o rekordbox deixaria de as encontrar), a não ser que ligues a opção para as faixas antigas, que pergunta antes.
+7. **Limpa os nomes das faixas novas**: tira o site e o número de faixa do nome do ficheiro (`05. Artista - Título` → `Artista - Título`) e, se quiseres, dá o nome `Artista - Título (Extended Mix)`. As faixas dos packs mudam logo; outras faixas novas só depois de confirmares. As que já tinhas não mudam de nome (o rekordbox deixaria de as encontrar), a não ser que ligues a opção para as faixas antigas, que pergunta antes.
 8. **Agrupa géneros parecidos**: `House/Tech House`, `Techno/Hard Techno`, `Melodic & Indie/…`, `Bass & Breaks/…`, `Dance & Mainstage/…`.
 9. **Pastas protegidas**: escolhes pastas em que a app nunca toca (os teus edits, sets já preparados).
 10. **Só faixas novas** (opção): mais rápido, arruma só o que chegou desde a última vez. As faixas que já tinhas não são tocadas. Na primeira vez que organizas uma pasta, ela é arrumada toda.
@@ -141,7 +141,7 @@ python app.py
 - Removes duplicates: the best copy stays (the Extended, else the longest); the other goes to quarantine for 30 days.
 - Looks up missing genres online (Discogs, Last.fm, optionally MusicBrainz) — an estimate, not a guarantee.
 - Splits tracks without a genre by BPM and saves the genre inside each track.
-- Removes website names (e.g. `www.djsoundtop.com`) from tags and from new tracks' file names; can name new tracks `Artist - Title (Extended Mix)`. Tracks from packs change right away, other new tracks after you confirm; tracks you already had keep their name unless you turn on the option for old tracks (it asks first).
+- Removes website names (e.g. `www.djsoundtop.com`) from tags, and website names and track numbers (`05. `) from new tracks' file names; can name new tracks `Artist - Title (Extended Mix)`. Tracks from packs change right away, other new tracks after you confirm; tracks you already had keep their name unless you turn on the option for old tracks (it asks first).
 - Protected folders are never touched; *Only new tracks* sorts only what arrived since last time; *Report* lists tracks with problems without changing anything.
 - Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
 

@@ -245,15 +245,37 @@ _FILE_SITE = re.compile(r"\s*[\[(]\s*(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|o
 # (with the '-' that glued it on; www.* stops at its top-level domain: 'www.site.com-Extended-Mix' keeps the mix)
 
 
-def site_free_name(path):
-    """'Artist - Title (Extended Mix) - www.djsoundtop.com.mp3' -> 'Artist - Title (Extended Mix).mp3'; None when
-    the name has no site in it, or nothing would be left."""
+# a track number at the start of a file name: '05. ', '01 - ', '01-', '01_', '03) ', '[9A] 05 - ', or '01 ' with a 0.
+# '3.14 (AR)', '1-2-3' or '808 State' are not track numbers ('.'/'-' right before a digit, or no separator)
+_TRACK_NUM = re.compile(r"^(\s*\[[^\]]*\]\s*)?(?:\d{1,3}\s*(?:\.(?!\d)|[)_]|\s-\s|-(?!\d))\s*|0\d\s+)(?=\D)")
+
+
+def _plain(s):
+    """Letters and digits only, no accents, any script ('Баста' stays 'баста')."""
+    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).casefold()
+    return re.sub(r"[\W_]+", "", s)
+
+
+def clean_file_name(path, artist=""):
+    """Same name without the download site and the track number: '05. Artist - Title - www.djsoundtop.com.mp3' ->
+    'Artist - Title.mp3'. Nothing is added or guessed. The number stays when the name starts with the artist from the
+    tags (the number is part of the artist: '808 State', '6 Sense'). None when nothing would change."""
     stem, ext = os.path.splitext(os.path.basename(path))
     cut = _FILE_SITE.sub("", stem)
-    if cut == stem:  # no site: never touch the name (not even its spacing)
+    if cut != stem:
+        cut = cut.lstrip(" -|–—:")  # 'www.site.com - 05. Artist': the site's separator goes with it
+    m = _TRACK_NUM.match(cut)
+    if m and not (artist and _plain(artist) and _plain(cut[len(m.group(1) or ""):]).startswith(_plain(artist))):
+        cut = (m.group(1) or "") + cut[m.end():]  # only the number: a '[Live] ' or '[9A] ' before it stays
+    if cut == stem:  # nothing to take out: never touch the name (not even its spacing)
         return None
-    new = re.sub(r"\s+", " ", cut).strip(" .-|–—:")
+    new = re.sub(r"\s+", " ", cut).strip(" .-_|–—:")
     return new + ext.lower() if re.search(r"\w", new) else None
+
+
+def site_free_name(path):
+    """Kept for callers that only want the site out (and the number, see clean_file_name)."""
+    return clean_file_name(path)
 
 
 def version_label(path, info=None):
