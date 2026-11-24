@@ -238,6 +238,23 @@ def pack_file_name(path, info):
     return name + os.path.splitext(path)[1].lower()
 
 
+# in file names only unmistakable sites: 'www.' / 'http' anywhere, or a .com/.net/.org/.ru/.info domain in brackets
+# (stricter than strip_sites for tags: a title like 'Love.me' must never lose words from the name)
+_FILE_SITE = re.compile(r"\s*[\[(]\s*(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info)\s*[\])]"
+                        r"|\s*[-|–—]?\s*(?:https?://|www\.)\S+", re.I)  # with the '-' that glued it on
+
+
+def site_free_name(path):
+    """'Artist - Title (Extended Mix) - www.djsoundtop.com.mp3' -> 'Artist - Title (Extended Mix).mp3'; None when
+    the name has no site in it, or nothing would be left."""
+    stem, ext = os.path.splitext(os.path.basename(path))
+    cut = _FILE_SITE.sub("", stem)
+    if cut == stem:  # no site: never touch the name (not even its spacing)
+        return None
+    new = re.sub(r"\s+", " ", cut).strip(" .-|–—:")
+    return new + ext.lower() if re.search(r"\w", new) else None
+
+
 def version_label(path, info=None):
     """'extended mix', 'radio edit', 'x remix'... from the title (tag, else file name); '' when none."""
     at = artist_title(path, info)
@@ -287,7 +304,9 @@ _OTHER_TEXT = {"album", "title", "artist", "albumartist", "label", "organization
 
 
 def strip_sites(text):
-    """'Rockin (Extended Mix) - www.site.com' -> 'Rockin (Extended Mix)'; 'site.com' -> ''; 'Love.me' stays."""
+    """'Rockin (Extended Mix) - www.site.com' -> 'Rockin (Extended Mix)'; 'site.com' -> ''; 'Love.me' stays.
+    A site glued on with a hyphen ('DUMBO-www.site.org') is split off first, so the words before it are kept."""
+    text = re.sub(r"(?<=\S)-(?=(?:https?://|www\.))", " - ", text, flags=re.I)
     if _WHOLE.fullmatch(text):
         return ""
     out = _PIECES.sub("", text).strip(" -|–—:")

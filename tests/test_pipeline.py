@@ -424,6 +424,52 @@ def test_undo_history_and_report():
     assert any(short in line and pl.t("rep.report_short") in line for line in text.splitlines())  # 1 s long
 
 
+def test_site_names():
+    from organizador.tags import site_free_name
+    assert site_free_name("A - B (Extended Mix) - www.djsoundtop.com.MP3") == "A - B (Extended Mix).mp3"
+    assert site_free_name("Carla - Red Ambition-www.groovytunes.org.wav") == "Carla - Red Ambition.wav"
+    assert site_free_name("DAMEN - Games (Original Mix) [4DJsonline.com] .aiff") == "DAMEN - Games (Original Mix).aiff"
+    assert site_free_name("Love.me (Extended Mix).wav") is None and site_free_name("www.site.com.wav") is None
+    assert site_free_name("Artist - Love.me.wav") is None and site_free_name("Artist  -  Title.wav") is None
+    assert site_free_name("Clouds - Mutate On-Site-www.groovytunes.org.mp3") == "Clouds - Mutate On-Site.mp3"
+    assert site_free_name("A - Title-www.site.com (Extended Mix).mp3") == "A - Title (Extended Mix).mp3"
+    assert strip_sites("DUMBO-www.groovytunes.org") == "DUMBO"  # tag: a glued site never takes the title with it
+    # 'Artist - Title' taken: the original name without the site is used instead
+    root = os.path.join(TMP, "sites2")
+    make(os.path.join(root, "Techno", "Techno", "Z - Taken.wav"), 2, "Q", "Other", "Techno")
+    make(os.path.join(root, pl.INBOX, "z_taken - www.djsoundtop.com.wav"), 1, "Z", "Taken", "Techno")
+    pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, rename_packs=True)).run()
+    assert sorted(os.listdir(os.path.join(root, "Techno", "Techno"))) == ["Z - Taken.wav", "z_taken.wav"]
+
+    root = os.path.join(TMP, "sites")
+    old = make(os.path.join(root, "Techno", "Techno", "A - Old (Original Mix) - www.djsoundtop.com.wav"), 1, "A", "Old", "Techno")
+    opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)  # clean_sites on by default
+    asked = []
+    ask = lambda items, kind="new": (asked.append((kind, len(items))), True)[1]
+    pl.Organizer(opts, ask_rename=ask).run()  # first run: the old track is known and keeps its name
+    assert os.path.exists(old) and asked == []
+    make(os.path.join(root, pl.INBOX, "pack", "B - New (Extended Mix) [4DJsonline.com].wav"), 1, "B", "New", "Techno")
+    make(os.path.join(root, "C - Loose - www.electronicfresh.com.wav"), 3, "C", "Loose", "Techno")
+    rep, errs = pl.Organizer(opts, ask_rename=ask).run()
+    assert not errs, errs
+    here = os.path.join(root, "Techno", "Techno")
+    assert os.path.exists(os.path.join(here, "B - New (Extended Mix).wav"))  # _entrada: no question
+    assert os.path.exists(os.path.join(here, "C - Loose.wav")) and asked == [("new", 1)]  # new outside: asked
+    assert os.path.exists(old)  # option for existing tracks is off
+
+    opts.site_names = True
+    org = pl.Organizer(opts)
+    org.preview()
+    assert ("site_name", old, "A - Old (Original Mix).wav") in org.plan
+    rep, _ = pl.Organizer(opts, ask_rename=lambda items, kind="new": False).run()  # "No": stays
+    assert os.path.exists(old)
+    rep, errs = pl.Organizer(opts, ask_rename=ask).run()
+    assert rep["site_names"] == 1 and asked[-1] == ("sites", 1)
+    assert os.path.exists(os.path.join(here, "A - Old (Original Mix).wav")) and not os.path.exists(old)
+    pl.undo_last(root)
+    assert os.path.exists(old)  # Undo puts the old name back
+
+
 if __name__ == "__main__":
     try:
         test_rules()
@@ -439,6 +485,7 @@ if __name__ == "__main__":
         test_protected_and_skip()
         test_only_new()
         test_undo_history_and_report()
+        test_site_names()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

@@ -28,7 +28,8 @@ from .i18n import t
 from .online import Lookup
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
-                   normalize_genre, pack_file_name, raw_genre, read_info, restore, search_terms, snapshot, track_key, version_label)
+                   normalize_genre, pack_file_name, raw_genre, read_info, restore, search_terms, site_free_name, snapshot,
+                   track_key, version_label)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
 for _old in ("Cratekeeper", "OrganizadorMusica"):  # names before v1.2 / v0.2
@@ -75,6 +76,7 @@ class Options:
     folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
     merge_versions: bool = True  # Radio Edit / Club Mix count as the same song as the Extended Mix
     rename_packs: bool = False  # new tracks (packs / _entrada) get 'Artist - Title (Mix)' names; never tracks elsewhere
+    site_names: bool = False  # tracks you already had lose the download site from their file name (asked first)
     only_new: bool = False  # only _entrada and tracks never seen before; the rest of the library is left as it is
     protected: list = field(default_factory=list)  # folders (absolute paths) the app never reads, moves or edits
 
@@ -292,12 +294,22 @@ class Organizer:
         except OSError:
             return False
 
+    def _wanted_names(self, p, info, known):
+        """New names for one track, best first. New tracks: 'Artist - Title (Mix)' (option), then the same name
+        without the download site (when sites are cleaned), used if the first is taken. Known tracks: only the site
+        comes out, and only with site_names."""
+        if known:
+            return [site_free_name(p)] if self.opts.site_names else []
+        return [n for n in (pack_file_name(p, info) if self.opts.rename_packs else None,
+                            site_free_name(p) if self.opts.clean_sites else None) if n]
+
     def rename_plan(self, files, infos):
-        """(names for _entrada tracks, names for never-seen tracks elsewhere): one plan, so two tracks never count
-        on the same new name and Preview says what Organize will do. Only the second group is asked about."""
-        inbox, outside, planned = {}, {}, set()
-        if not self.opts.rename_packs:
-            return inbox, outside
+        """(names for _entrada tracks, names for never-seen tracks elsewhere, site-free names for tracks you already
+        had): one plan, so two tracks never count on the same new name and Preview says what Organize will do.
+        _entrada is renamed without asking; the other two groups are asked about (rekordbox may have them)."""
+        inbox, outside, sites, planned = {}, {}, {}, set()
+        if not (self.opts.rename_packs or self.opts.clean_sites or self.opts.site_names):
+            return inbox, outside, sites
         for p in sorted(files, key=lambda p: not self._in_inbox(p)):  # _entrada first: renamed without asking
             info = infos[p]
             if info["unreadable"]:
@@ -307,15 +319,19 @@ class Organizer:
             elif self.is_new(p):
                 group = outside
             else:
+                group = sites
+            names = [n for n in self._wanted_names(p, info, group is sites) if n]
+            if not names:
                 continue
-            name = pack_file_name(p, info)
             g = self.plan_genre(p, info)
             dst_dir = os.path.dirname(p) if self.in_place(p, g) else self.target_dir(g)
-            key = os.path.normcase(os.path.join(dst_dir, name or ""))
-            if self.name_usable(p, dst_dir, name) and key not in planned:
-                planned.add(key)
-                group[p] = name
-        return inbox, outside
+            for name in names:  # the first one that is free
+                key = os.path.normcase(os.path.join(dst_dir, name))
+                if self.name_usable(p, dst_dir, name) and key not in planned:
+                    planned.add(key)
+                    group[p] = name
+                    break
+        return inbox, outside, sites
 
     def _settle(self, p):
         """A never-seen track is dealt with (renamed, or the user said No): known, even if dedupe removes it later."""
@@ -662,12 +678,16 @@ class Organizer:
     def step_organize(self):
         files = [p for p in self.audio_files() if self._in_scope(p)]
         infos = self._read_all(files, "organize")
-        inbox_names, outside = self.rename_plan(files, infos)
+        inbox_names, outside, sites = self.rename_plan(files, infos)
+        self._pending -= {os.path.normcase(p) for p in files if p not in outside}  # nothing to ask about them
         if outside and not (self.ask_rename and self.ask_rename(sorted(outside.items()))):
             for p in outside:  # "No": known from now on, never asked again
                 self._settle(p)
             outside = {}
-        names = {**inbox_names, **outside}
+        # tracks you already had: the site comes out of the name only after a yes (asked every run while it's on)
+        if sites and not (self.ask_rename and self.ask_rename(sorted(sites.items()), "sites")):
+            sites = {}
+        names = {**inbox_names, **outside, **sites}
         for i, p in enumerate(files, 1):
             self._tick("organize", i, len(files), os.path.basename(p))
             if infos[p]["unreadable"] and not self._in_inbox(p):
@@ -684,7 +704,7 @@ class Organizer:
                 if dst:
                     self.report[f"moved|{self.label(g)}"] += 1
             if dst and name and os.path.basename(dst) == name:
-                self.report["renamed"] += 1
+                self.report["site_names" if p in sites else "renamed"] += 1
                 self._settle(dst)  # done: known from now on
         inbox = os.path.join(self.root, INBOX)
         if os.path.isdir(inbox):
@@ -864,7 +884,8 @@ class Organizer:
         steps = [(self.opts.extract, self.step_extract), (True, self.step_organize), (self.opts.dedupe, self.step_dedupe),
                  (self.opts.online, self.step_online), (self.opts.bpm_folders, self.step_bpm),
                  (self.opts.write_tags or self.opts.clean_sites, self.step_tags)]
-        if self.opts.rename_packs and self.known is not None:  # never-seen at the start: stay new if we stop early
+        renames = self.opts.rename_packs or self.opts.clean_sites
+        if renames and self.known is not None:  # never-seen at the start: stay new if we stop before the question
             self._pending = {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)}
         self._fresh = self._new_tracks()
         self._start = self._identities()  # where/what every track was before this run: Undo puts them back there
@@ -903,7 +924,7 @@ class Organizer:
         self._fresh = self._new_tracks()
         files = list(self.audio_files())
         infos = self._read_all(files, "preview")  # all of them: duplicates are looked for in the whole library
-        inbox_names, outside = self.rename_plan([p for p in files if self._in_scope(p)], infos)
+        inbox_names, outside, sites = self.rename_plan([p for p in files if self._in_scope(p)], infos)
         for p, info in infos.items():
             if not self._in_scope(p):
                 continue
@@ -933,7 +954,10 @@ class Organizer:
                 self.plan.append(("tags", p, new_genre))
             if p in outside:
                 self.plan.append(("rename_ask", p, outside[p]))
+            if p in sites:
+                self.plan.append(("site_name", p, sites[p]))
         rep["tracks"] = len(files)
+        rep["site_names_ask"] = len(sites)
         rep["rename_ask"] = len(outside)
         if self.opts.dedupe:
             dups = self.find_duplicates(infos)

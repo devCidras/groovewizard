@@ -50,7 +50,10 @@ HELP = {
       As outras vão para a <b>quarentena</b> (pasta escondida <code>_quarentena</code>), onde ficam 30 dias antes de irem para a Reciclagem.</li>
   <li><b>Outros:</b> géneros com poucas faixas (Pop, Hardstyle, Rock…). O género verdadeiro fica na tag.</li>
   <li><b>BPM:</b> <code>Sem Genero</code> e <code>Outros</code> ficam divididos em pastas de BPM.</li>
-  <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.</li>
+  <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.
+      O site também sai do <b>nome das faixas novas</b> (ex.: <code>- www.djsoundtop.com</code>). Nas faixas que já tens
+      só com a opção <i>Tirar sites do nome das faixas que já tens</i>, que pergunta antes: o rekordbox deixa de as
+      encontrar e tens de as importar outra vez.</li>
   <li><b>Nomes</b> (opção, desligada por defeito): as faixas novas ficam com o nome
       <code>Artista - Título (Extended Mix)</code>: artista e título vêm das tags; a versão vem do título
       e, se lá não estiver, do nome antigo do ficheiro. As faixas dos packs e as que puseres
@@ -117,7 +120,10 @@ HELP = {
       The others go to <b>quarantine</b> (hidden <code>_quarentena</code> folder), kept 30 days before going to the Recycle Bin.</li>
   <li><b>Other:</b> genres with few tracks (Pop, Hardstyle, Rock…). The real genre stays in the tag.</li>
   <li><b>BPM:</b> <code>No Genre</code> and <code>Other</code> are split into BPM folders.</li>
-  <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.</li>
+  <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.
+      The site also comes out of <b>new tracks' file names</b> (e.g. <code>- www.djsoundtop.com</code>). For tracks you
+      already have, only with the option <i>Remove sites from your existing tracks' names</i>, which asks first:
+      rekordbox no longer finds them and you have to import them again.</li>
   <li><b>Names</b> (option, off by default): new tracks are named
       <code>Artist - Title (Extended Mix)</code>: artist and title come from the tags; the version from the title,
       or else from the old file name. Tracks from packs or put in the

@@ -20,7 +20,8 @@ from .theme import C, QSS
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
-EXTRA_OPTIONS = ["only_new", "merge_versions", "clean_sites", "families", "rename_packs", "musicbrainz", "delete_archives"]
+EXTRA_OPTIONS = ["only_new", "merge_versions", "clean_sites", "families", "rename_packs", "site_names", "musicbrainz",
+                 "delete_archives"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-icone.png")  # symbol without tile: reads bigger
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-simbolo.png")  # no tile: sits on the dark header
 
@@ -176,7 +177,7 @@ class Worker(QObject):
     progress = Signal(str, int, int, str)
     finished = Signal(str, object, object)  # kind, report, errors
     failed = Signal(str)
-    ask = Signal(object, object)  # worker, [(path, new name)] -> the window answers through worker.answer()
+    ask = Signal(object, object, str)  # worker, [(path, new name)], "new"/"sites" -> answered via worker.answer()
 
     def __init__(self, kind, opts, keys, cancel, extra=None):
         super().__init__()
@@ -189,10 +190,10 @@ class Worker(QObject):
         self._answer = yes
         self._answered.set()
 
-    def ask_rename(self, items):
+    def ask_rename(self, items, kind="new"):
         """Runs in the worker thread: waits for the user's answer in the window (Cancel also stops waiting)."""
         self._answered.clear()
-        self.ask.emit(self, items)
+        self.ask.emit(self, items, kind)
         while not self._answered.wait(0.2):
             if self.cancel.is_set():
                 raise Cancelled()
@@ -739,13 +740,14 @@ class Window(QMainWindow):
         self.btn_cancel.setEnabled(False)
         self.status.setText(t("status.cancelling"))
 
-    def ask_rename(self, worker, items):
+    def ask_rename(self, worker, items, kind="new"):
         """New tracks outside _entrada: renaming one that is already in rekordbox/Serato would make it lose it.
         The box is modal, so it carries its own Cancel (the main Cancel button can't be clicked meanwhile)."""
         if self.cancel.is_set():
             worker.answer(False)
             return
-        box = QMessageBox(QMessageBox.Question, t("rename.title"), t("rename.ask", n=len(items)),
+        prefix = "sites" if kind == "sites" else "rename"  # sites: tracks you already had, maybe in rekordbox
+        box = QMessageBox(QMessageBox.Question, t(prefix + ".title"), t(prefix + ".ask", n=len(items)),
                           QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, self)
         box.setDefaultButton(QMessageBox.No)
         box.setDetailedText("\n".join(f"{os.path.basename(p)}  →  {name}" for p, name in items))
