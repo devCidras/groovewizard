@@ -25,11 +25,13 @@ from send2trash import send2trash
 
 from . import bpm as bpm_mod
 from .i18n import t
+from .capas import SiteCovers, repeated
 from .online import Deezer, Discogs, Lookup
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
                    normalize_genre, pack_file_name, raw_genre, read_info, remove_cover, restore, search_terms, clean_file_name,
-                   set_cover, snapshot, track_key, version_label, cover_digest)
+                   set_cover, snapshot, track_key, version_label, cover_digest, pictures,
+                   put_back_cover)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
 for _old in ("Cratekeeper", "OrganizadorMusica"):  # names before v1.2 / v0.2
@@ -47,6 +49,8 @@ SKIP_DIRS = {"downloading", "incomplete"}  # transfers still in progress (Soulse
 INBOX = "_entrada"  # where packs are extracted before sorting
 QUARANTINE = "_quarentena"  # removed files, one subfolder per run
 QUARANTINE_DAYS = 30
+REMOVED_COVERS = "capas_tiradas"  # in the library's data folder: site covers taken out (few, shared by many tracks), for Undo
+MARKED_COVERS = os.path.join(APP_DIR, "capas_marcadas.json")  # covers the user said are not real ones
 INVENTORY = "faixas_conhecidas.json"  # tracks the app has seen: anything else is new (see Organizer.is_new)
 QUARANTINE_MARK = ".quarentena-da-app"  # written by the app; a _quarentena without it is not ours
 RUN_DIR = re.compile(r"^\d{8}-\d{6}-\d+-\d+$")  # run_id format
@@ -76,7 +80,8 @@ class Options:
     folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
     merge_versions: bool = True  # Radio Edit / Club Mix count as the same song as the Extended Mix
     rename_packs: bool = False  # new tracks (packs / _entrada) get 'Artist - Title (Mix)' names; never tracks elsewhere
-    covers: bool = False  # tracks without cover art get one from Discogs (needs the Discogs key)
+    covers: bool = False  # tracks without cover art get one (Deezer, then Discogs with its key)
+    site_covers: bool = False  # covers that are a site's ad or generic store art are taken out and the real one looked up
     site_names: bool = False  # tracks you already had lose the download site from their file name (asked first)
     only_new: bool = False  # only _entrada and tracks never seen before; the rest of the library is left as it is
     protected: list = field(default_factory=list)  # folders (absolute paths) the app never reads, moves or edits
@@ -956,30 +961,53 @@ class Organizer:
 
     # ---------- tags ----------
 
+    def site_cover_map(self, files, infos):
+        """{track: [images that are a site's ad or generic store art]}."""
+        site = SiteCovers(MARKED_COVERS)
+        files = [p for p in files if not infos[p]["unreadable"] and infos[p]["cover"]]
+        out = {}
+        ex = ThreadPoolExecutor(8)
+        try:
+            for i, (p, pics) in enumerate(zip(files, ex.map(pictures, files)), 1):
+                if i % 50 == 0 or i == len(files):
+                    self._tick("covers", i, len(files), os.path.basename(p))
+                bad = [d for d in pics if site.is_site(d)]
+                if bad:
+                    out[p] = bad
+        finally:
+            ex.shutdown(wait=True, cancel_futures=True)
+        return out
+
     def step_covers(self):
         """Tracks without cover art get the cover of a release they are on: Deezer first (no key), then Discogs (with
-        its key). Only a result whose artist and title match is used. Never replaces a cover."""
+        its key). Only a result whose artist and title match is used. A real cover is never replaced; a site's ad
+        comes out (with site_covers) and stays out even when no real cover is found."""
         token = self.keys.get("discogs_token", "")
         sources = [Deezer(self.data, self.cancel)] + ([Discogs(self.data, token, self.cancel)] if token else [])
         files = [p for p in self.audio_files() if self._in_scope(p)]
         infos = self._read_all(files, "covers")
-        todo = [p for p in files if not infos[p]["unreadable"] and not infos[p]["cover"]]
-        folder = os.path.join(self.data, "capas")
+        bad = self.site_cover_map(files, infos) if self.opts.site_covers else {}
+        todo = [p for p in files if p in bad
+                or (self.opts.covers and not infos[p]["unreadable"] and not infos[p]["cover"])]
+        site = SiteCovers(MARKED_COVERS)
         try:
             for i, p in enumerate(todo, 1):
                 self._tick("covers", i, len(todo), os.path.basename(p))
-                terms = search_terms(p)
-                data = None
-                for src in sources if terms else []:
-                    url = src.cover(*terms)
-                    data = src.image(url, folder) if url else None
-                    if data:
-                        break
-                if not data:
-                    continue
+                drop = bad.get(p, [])
                 try:
-                    if self._add_cover(p, data):
-                        self.report["covers_added"] += 1
+                    data, asked = None, True
+                    if not drop or len(pictures(p)) == len(drop):  # with a real cover left there is nothing to look up
+                        data, asked = self._find_cover(p, sources)
+                    if data and site.is_site(data):
+                        data = None
+                    if drop and not asked:
+                        self.report["site_covers_later"] += 1  # no answer from the internet: next time
+                        continue
+                    if (drop or data) and self._change_cover(p, drop, data):
+                        self.report["site_covers_out"] += bool(drop)
+                        self.report["covers_added"] += bool(data)
+                except Cancelled:
+                    raise
                 except Exception as e:
                     self.errors.append(f"{os.path.basename(p)}: {e}")
                 if i % 25 == 0:
@@ -988,28 +1016,83 @@ class Organizer:
         finally:
             for src in sources:
                 src.save()
+        self.report = +self.report  # no zero lines in the summary
 
-    def _add_cover(self, p, data):
-        """On a verified copy, like tags; logged first (with the image's digest) so Undo can take exactly this cover out
-        again. False when the track got a cover meanwhile (another program): it is never replaced."""
+    def _find_cover(self, p, sources):
+        """(image or None, True when every source answered)."""
+        terms = search_terms(p)
+        asked = True
+        for src in sources if terms else []:
+            url = src.cover(*terms)
+            data = src.image(url, os.path.join(self.data, "capas")) if url else None
+            if data:
+                return data, True
+            if url is None or url:  # couldn't ask, or the image didn't come
+                asked = False
+        if self.cancel.is_set():
+            raise Cancelled()
+        return None, asked
+
+    def _change_cover(self, p, drop, data):
+        """Takes the `drop` images out and puts `data` in (only if no other cover is left), on a verified copy; logged
+        first, with the removed images kept, so Undo puts everything back. False when there was nothing to change."""
         tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"
-        shutil.copy2(p, tmp)
+        rows = []
         try:
-            first = read_info(tmp)
-            if first["cover"]:
+            shutil.copy2(p, tmp)
+            before = read_info(tmp)["duration"]
+            gone = [d for d in drop if remove_cover(tmp, cover_digest(d))]
+            left = len(pictures(tmp))
+            data = None if left else data
+            if not gone and not data:
                 return False
-            before = first["duration"]
-            self._write_log("capa", p, cover_digest(data))
+            for d in gone:
+                keep = os.path.join(self.data, REMOVED_COVERS, cover_digest(d))
+                if not os.path.exists(keep):
+                    os.makedirs(os.path.dirname(keep), exist_ok=True)
+                    with open(keep + ".tmp", "wb") as fh:
+                        fh.write(d)
+                    os.replace(keep + ".tmp", keep)
+                rows.append(("capa_fora", p, cover_digest(d)))
+            if data:
+                rows.append(("capa", p, cover_digest(data)))
+            for r in rows:
+                self._write_log(*r)
             self._fp_cache.pop(self._rel(p), None)
-            set_cover(tmp, data)
+            if data:
+                set_cover(tmp, data)
             check = read_info(tmp)
-            if check["unreadable"] or not check["cover"] or (before and abs(check["duration"] - before) > 0.5):
+            if check["unreadable"] or check["cover"] != bool(left or data) or (
+                    before and abs(check["duration"] - before) > 0.5):
                 raise RuntimeError(t("err.tag_check"))
             os.replace(tmp, p)
             return True
+        except BaseException:
+            for _, a, b in rows:
+                self._write_log("falhou", a, b)  # not changed: Undo skips these entries
+            raise
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
+
+    def repeated_covers(self):
+        """For 'Repeated covers': read-only look at every embedded image."""
+        files = list(self.audio_files())
+
+        def one(p):
+            pics = pictures(p)
+            return [(d, read_info(p)["artist"]) for d in pics] if pics else []
+
+        def covers():
+            ex = ThreadPoolExecutor(8)
+            try:
+                for i, found in enumerate(ex.map(one, files), 1):
+                    if i % 50 == 0 or i == len(files):
+                        self._tick("covers_scan", i, len(files), os.path.basename(files[i - 1]))
+                    yield from found
+            finally:
+                ex.shutdown(wait=True, cancel_futures=True)
+        return repeated(covers(), SiteCovers(MARKED_COVERS))
 
     def step_tags(self):
         files = [p for p in self.audio_files() if self._in_scope(p)]
@@ -1064,7 +1147,7 @@ class Organizer:
     def _run(self):
         steps = [(self.opts.extract, self.step_extract), (True, self.step_organize), (self.opts.dedupe, self.step_dedupe),
                  (self.opts.online, self.step_online), (self.opts.bpm_folders, self.step_bpm),
-                 (self.opts.write_tags or self.opts.clean_sites, self.step_tags), (self.opts.covers, self.step_covers)]
+                 (self.opts.write_tags or self.opts.clean_sites, self.step_tags), (self.opts.covers or self.opts.site_covers, self.step_covers)]
         renames = self.opts.rename_packs or self.opts.clean_sites
         if renames and self.known is not None:  # never-seen at the start: stay new if we stop before the question
             self._pending = {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)}
@@ -1170,6 +1253,10 @@ class Organizer:
             bare = [p for p, i in infos.items() if self._in_scope(p) and not i["unreadable"] and not i["cover"]]
             rep["covers_pending"] = len(bare)
             self.plan += [("cover", p, t("plan.cover_detail")) for p in bare]
+        if self.opts.site_covers:
+            bad = self.site_cover_map([p for p in files if self._in_scope(p)], infos)
+            rep["site_covers_pending"] = len(bad)
+            self.plan += [("site_cover", p, t("plan.cover_detail")) for p in bad]
         if self.opts.online and os.path.isdir(self.target_dir(NO_GENRE)):
             rep["online_pending"] = sum(1 for p in self.audio_files(self.target_dir(NO_GENRE)) if self._in_scope(p))
         inbox = os.path.join(self.root, INBOX)
@@ -1308,6 +1395,24 @@ def _safe_uncover(path, digest, run_id):
             os.remove(tmp)
 
 
+def _safe_put_back(path, image, run_id):
+    """Undo of a site cover taken out, on a copy that must still play before it replaces the track."""
+    if any(cover_digest(d) == cover_digest(image) for d in pictures(path)):
+        return
+    before = read_info(path)["duration"]
+    tmp = f"{path}.ck-undo-{run_id}{os.path.splitext(path)[1]}"
+    shutil.copy2(path, tmp)
+    try:
+        put_back_cover(tmp, image)
+        check = read_info(tmp)
+        if check["unreadable"] or (before and abs(check["duration"] - before) > 0.5):
+            raise RuntimeError(t("err.tag_check"))
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def _move_back(src, dst, errors, retry):
     """dst -> src; True when moved. retry[0] = True when trying again later could succeed."""
     if not os.path.exists(dst):
@@ -1440,7 +1545,7 @@ def _undo_last(root, progress, cancel, protected=()):
         done = set()
     rep, errors, retry = Counter(), [], [False]
     failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
-    kinds = ("tags", "quarentena", "mover", "extraido", "genero", "capa")
+    kinds = ("tags", "quarentena", "mover", "extraido", "genero", "capa", "capa_fora")
     todo = [(i, r) for i, r in enumerate(rows) if r[0] in kinds and len(r) > 2 and (r[1], r[2]) not in failed
             and i not in done]
     overrides_path = os.path.join(data, "generos_corrigidos.json")
@@ -1453,7 +1558,7 @@ def _undo_last(root, progress, cancel, protected=()):
                     raise Cancelled()
                 kind, a, b = r[:3]
                 progress("undo", n, len(todo), os.path.basename(a))
-                touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind in ("tags", "capa") else []
+                touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind in ("tags", "capa", "capa_fora") else []
                 if any(os.path.isabs(p) and inside(p) for p in touched):
                     errors.append(t("err.undo_protected", path=a))
                     retry[0] = True  # stays pending: undone later, when the folder is no longer protected
@@ -1477,6 +1582,19 @@ def _undo_last(root, progress, cancel, protected=()):
                         try:
                             if _safe_uncover(a, b, run_id):
                                 rep["undo_covers"] += 1
+                            ok = True
+                        except Exception as e:
+                            errors.append(f"{a}: {e}")
+                            retry[0] = True
+                elif kind == "capa_fora":  # a site's cover taken out: put back
+                    if not os.path.exists(a):
+                        errors.append(t("err.undo_missing", path=a))
+                    else:
+                        try:
+                            with open(os.path.join(data, REMOVED_COVERS, b), "rb") as fh:
+                                image = fh.read()
+                            _safe_put_back(a, image, run_id)
+                            rep["undo_site_covers"] += 1
                             ok = True
                         except Exception as e:
                             errors.append(f"{a}: {e}")

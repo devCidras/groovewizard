@@ -54,6 +54,9 @@ HELP = {
       título, álbum e comentários.</li>
   <li><b>Capas</b> (opção <i>Pôr capas</i>): as faixas sem capa recebem a capa do lançamento (Deezer e, com a chave,
       Discogs). Uma capa que já exista nunca é trocada. No rekordbox, faz <i>Recarregar tag</i> para a ver.</li>
+  <li><b>Capas de sites</b> (opção <i>Trocar capas de sites</i>): tira as capas que são publicidade (ex.: djsoundtop)
+      ou genéricas (ex.: símbolo do Beatport) e procura a verdadeira. Se não a encontrar, a faixa fica sem capa. Se
+      aparecer um site novo, carrega em <i>Ver capas repetidas…</i> e marca a capa dele.</li>
 </ul>
 <h3>Nomes das faixas</h3>
 <ul>
@@ -128,6 +131,9 @@ HELP = {
       from the title, album and comments.</li>
   <li><b>Cover art</b> (option <i>Add cover art</i>): tracks without a cover get the release's cover (Deezer and, with
       the key, Discogs). An existing cover is never replaced. In rekordbox, use <i>Reload Tag</i> to see it.</li>
+  <li><b>Site covers</b> (option <i>Replace site covers</i>): takes out covers that are ads (e.g. djsoundtop) or generic
+      (e.g. the Beatport logo) and looks for the real one. If it isn't found, the track is left without a cover. If a
+      new site shows up, press <i>See repeated covers…</i> and tick its cover.</li>
 </ul>
 <h3>Track names</h3>
 <ul>

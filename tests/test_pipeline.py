@@ -647,6 +647,80 @@ def test_covers():
         pl.Discogs, pl.Deezer = real
 
 
+def test_site_covers():
+    """A site's ad comes out (the real cover is put in when found), real covers stay, Undo puts the ad back."""
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from organizador import capas
+    from organizador.tags import cover_digest, pictures, put_back_cover, set_cover
+
+    def image(color, box, side=300, fmt="JPG"):
+        im = QImage(side, side, QImage.Format_RGB888)
+        im.fill(QColor(color))
+        p = QPainter(im)
+        x, y, w, h = (int(v * side) for v in box)
+        p.fillRect(x, y, w, h, QColor("white"))
+        p.end()
+        b = QBuffer()
+        b.open(QIODevice.WriteOnly)
+        assert im.save(b, fmt)
+        return bytes(b.data())
+
+    ad, ad_small = image("black", (.2, .4, .6, .2)), image("black", (.2, .4, .6, .2), 90, "PNG")  # same ad, other file
+    logo = image("black", (.4, .1, .2, .6))  # a real label cover, also white on black
+    found = image("red", (.1, .1, .3, .3))
+    f = capas.fingerprint(ad)
+    assert capas.same(f, capas.fingerprint(ad_small)) and not capas.same(f, capas.fingerprint(logo))
+    assert capas.fingerprint(b"not an image") is None
+    shipped = capas.SiteCovers("none").shipped
+    assert len(shipped) >= 30
+    root = os.path.join(TMP, "capas-sites")
+    here = os.path.join(root, "Techno", "Techno")
+    a, b, c, d, e = (make(os.path.join(here, n + " - Song.wav"), i + 1, n, "Song", "Techno") for i, n in enumerate("ABCDE"))
+    for p, pic in ((a, ad), (b, ad_small), (c, logo), (d, ad), (e, ad)):
+        set_cover(p, pic)
+    put_back_cover(d, logo)  # D: the ad and a real cover
+    answer = {"A": "u", "B": "", "E": None}  # found / nothing there / no internet
+
+    class Fake:
+        def __init__(self, *a):
+            pass
+
+        def cover(self, artist, title):
+            return answer[artist]  # KeyError (an error in the report) if C or D were looked up
+
+        def image(self, url, folder):
+            return found
+
+        def save(self):
+            pass
+
+    real = pl.Deezer
+    pl.Deezer = Fake
+    try:
+        capas.SiteCovers(pl.MARKED_COVERS).save_marked([f])
+        opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, site_covers=True)
+        org = pl.Organizer(opts)
+        assert org.preview()["site_covers_pending"] == 4
+        assert {p for k, p, _ in org.plan if k == "site_cover"} == {a, b, d, e}
+        before = {p: [cover_digest(x) for x in pictures(p)] for p in (a, b, c, d, e)}
+        rep, errs = pl.Organizer(opts).run()
+        assert not errs and (rep["site_covers_out"], rep["covers_added"], rep["site_covers_later"]) == (3, 1, 1), (rep, errs)
+        assert [pictures(p) for p in (a, b, c, d, e)] == [[found], [], [logo], [logo], [ad]]
+        rep, errs = pl.undo_last(root)
+        assert not errs and rep["undo_site_covers"] == 3, (rep, errs)
+        assert {p: sorted(cover_digest(x) for x in pictures(p)) for p in before} == {p: sorted(v) for p, v in before.items()}
+        # unticked in the list: left alone
+        pl.Organizer(opts, skip=[a, b, d]).run()
+        assert pictures(a) == [ad]
+        many = [(ad, str(i)) for i in range(6)] + [(ad_small, "x"), (logo, "y")]
+        groups = capas.repeated(many, capas.SiteCovers("none"))
+        assert len(groups) == 1 and groups[0][2] == 6 and groups[0][3] == 6, groups
+    finally:
+        pl.Deezer = real
+        os.remove(pl.MARKED_COVERS)
+
+
 def test_review_fixes():
     from organizador import bpm
     from organizador.tags import artist_title, artists_key, clean_sites
@@ -705,6 +779,7 @@ if __name__ == "__main__":
         test_same_size_new_track()
         test_covers()
         test_review_fixes()
+        test_site_covers()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

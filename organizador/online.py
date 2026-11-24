@@ -140,7 +140,7 @@ class Discogs(Cached):
             q = urllib.parse.urlencode({"type": "release", "artist": artist, "track": title, "per_page": 10})
             r = self.fetch("https://api.discogs.com/database/search?" + q, self.h)
             if r is None:
-                return ""  # failed: not cached, tried again next run
+                return None  # failed: not cached, tried again next run
             nt = norm(title)
             # 'Artist - Release': only releases by this artist (a Various Artists compilation cover is not the track's)
             ok = [x for x in r.get("results", []) if " - " in x.get("title", "")
@@ -214,7 +214,7 @@ class Deezer(Cached):
             r = self.fetch("https://api.deezer.com/search?" + urllib.parse.urlencode({"q": f"{artist} {base}", "limit": 15}),
                            self.h)
             if r is None:
-                return ""
+                return None  # failed: not cached, tried again next run
             words = set(norm(title).split())
             hits = [x for x in r.get("data", []) if _same_artist(artist, x.get("artist", {}).get("name", ""))
                     and base and _base_title(x.get("title", "")) == base]

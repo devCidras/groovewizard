@@ -88,6 +88,6 @@ QListWidget, QTableWidget {{
 QListWidget::item {{ padding: 4px 6px; }}
 QListWidget:focus, QTableWidget:focus {{ border: 1px solid {C['secondary_hover']}; }}
 QHeaderView::section {{ background: {C['muted']}; color: {C['fg_muted']}; border: none; padding: 6px 8px; font-weight: 600; }}
-QTableWidget::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1px solid {C['fg_muted']}; background: {C['muted']}; }}
-QTableWidget::indicator:checked {{ background: {C['accent']}; border: 1px solid {C['accent']}; }}
+QListWidget::indicator, QTableWidget::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1px solid {C['fg_muted']}; background: {C['muted']}; }}
+QListWidget::indicator:checked, QTableWidget::indicator:checked {{ background: {C['accent']}; border: 1px solid {C['accent']}; }}
 """

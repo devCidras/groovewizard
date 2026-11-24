@@ -3,6 +3,7 @@ import os
 import sys
 import threading
 import traceback
+from collections import Counter
 from dataclasses import asdict
 
 from PySide6.QtCore import QObject, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QThread, QTimer, Signal, Property
@@ -12,16 +13,17 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDi
                                QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from . import __version__, config, termos
+from .capas import SiteCovers
 from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
-from .pipeline import (APP_DIR, Busy, Cancelled, Options, Organizer, library_lock, library_report, list_runs,
+from .pipeline import (APP_DIR, MARKED_COVERS, Busy, Cancelled, Options, Organizer, library_lock, library_report, list_runs,
                        protectable, purge_quarantine, too_broad, undo_until)
 from .theme import C, QSS
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"]), ("covers", ["covers"])]
-EXTRA_OPTIONS = ["only_new", "merge_versions", "clean_sites", "families", "rename_packs", "site_names", "musicbrainz",
-                 "delete_archives"]
+EXTRA_OPTIONS = ["only_new", "merge_versions", "clean_sites", "families", "rename_packs", "site_names",
+                 "site_covers", "musicbrainz", "delete_archives"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-icone.png")  # symbol without tile: reads bigger
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-simbolo.png")  # no tile: sits on the dark header
 
@@ -181,6 +183,7 @@ class Worker(QObject):
         super().__init__()
         self.kind, self.opts, self.keys, self.cancel = kind, opts, keys, cancel
         self.extra = extra or {}  # undo: {"until": run_id}; run: {"skip": [paths unticked in the review list]}
+        self.repeated = []
         self.plan, self.snapshot, self.report_path = [], None, None  # results the window reads after a preview / report
         self._answer, self._answered = False, threading.Event()
 
@@ -207,6 +210,11 @@ class Worker(QObject):
                                        self.extra.get("newest"))
             elif self.kind == "purge":
                 rep, errs = {"purged": purge_quarantine(self.opts.root)}, []  # takes the library lock
+            elif self.kind == "covers_scan":
+                org = Organizer(self.opts, self.keys, emit, self.cancel)
+                with library_lock(self.opts.root):  # no run changing files while it reads them
+                    self.repeated = org.repeated_covers()
+                rep, errs = Counter(), []
             elif self.kind == "report":
                 org = Organizer(self.opts, self.keys, emit, self.cancel)
                 path = os.path.join(org.data, f"relatorio-{org.run_id}.csv")  # unique: never overwrites an older one
@@ -357,6 +365,11 @@ class Window(QMainWindow):
         lay.addWidget(QLabel(t("card.more"), objectName="cardTitle"))
         for field in EXTRA_OPTIONS:
             self.toggles[field] = self._option(lay, field, getattr(opts, field))
+            if field == "site_covers":
+                self.btn_covers = QPushButton(t("btn.covers"), objectName="ghost", cursor=Qt.PointingHandCursor,
+                                              toolTip=t("btn.covers_tip"))
+                self.btn_covers.clicked.connect(lambda: self.start("covers_scan"))
+                lay.addWidget(self.btn_covers, 0, Qt.AlignLeft)
         ll.addWidget(c)
         ll.addStretch()
         self.steps_card, self.left_lay = c, ll
@@ -648,7 +661,7 @@ class Window(QMainWindow):
 
     def busy(self, on):
         for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_quarantine, self.btn_report, self.btn_plan,
-                  self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
+                  self.btn_covers, self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
                   self.lang_combo, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
@@ -657,10 +670,12 @@ class Window(QMainWindow):
         for field, r in self.step_rows:
             if kind == "preview":
                 on = field in ("_organize", "extract", "dedupe")
-            elif kind in ("undo", "purge", "report"):
+            elif kind in ("undo", "purge", "report", "covers_scan"):
                 on = False
             elif field == "write_tags":
                 on = opts.write_tags or opts.clean_sites
+            elif field == "covers":
+                on = opts.covers or opts.site_covers
             else:
                 on = field.startswith("_") or getattr(opts, field)
             r.set("waiting" if on else "off")
@@ -861,9 +876,22 @@ class Window(QMainWindow):
                 tracks = len({p for _, p, _ in self._plan})  # same count as the list window (tracks, not rows)
                 self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
                 self.btn_plan.show()
+        if kind == "covers_scan":
+            found = self.worker.repeated
+            QTimer.singleShot(0, lambda: self._covers_ready(found))
         if kind == "report" and self.worker.report_path:
             path = self.worker.report_path
             QTimer.singleShot(0, lambda: self._report_ready(path))  # after the counts are on screen
+
+    def _covers_ready(self, found):
+        from .janelas import CoversDialog
+        site = SiteCovers(MARKED_COVERS)
+        if not found:
+            QMessageBox.information(self, t("covers.title"), t("covers.empty"))
+            return
+        d = CoversDialog(found, site.marked, self)
+        if d.exec() == CoversDialog.Accepted:
+            site.save_marked(d.marked())
 
     def _report_ready(self, path):
         box = QMessageBox(QMessageBox.Information, t("btn.report"), t("report.done", path=path), QMessageBox.Close, self)

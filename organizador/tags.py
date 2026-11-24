@@ -196,6 +196,47 @@ def cover_digest(data):
     return hashlib.sha1(data).hexdigest()[:16]
 
 
+def pictures(path):
+    """Every embedded image's bytes ([] when none or unreadable)."""
+    f = _open(path)
+    if f is None:
+        return []
+    out = [p.data for p in getattr(f, "pictures", None) or []]
+    for k in f.tags.keys() if f.tags else ():
+        if str(k).startswith("APIC"):
+            out.append(f.tags[k].data)
+        elif k == "covr":
+            out += [bytes(c) for c in f.tags[k]]
+    return out
+
+
+def put_back_cover(path, data):
+    """Undo of taking a site's cover out: adds the image next to whatever is there, unchecked (it was in the file).
+    shortcut: it comes back as a front cover, its original description isn't kept."""
+    from mutagen.flac import Picture
+    from mutagen.id3 import APIC
+    from mutagen.mp4 import MP4Cover
+    png = data[:8] == b"\x89PNG\r\n\x1a\n"
+    mime = "image/png" if png else "image/jpeg"
+    f = mutagen.File(path)
+    if f is None:
+        raise ValueError("formato nao reconhecido")
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".flac":
+        pic = Picture()
+        pic.type, pic.mime, pic.data = 3, mime, data
+        f.add_picture(pic)
+    else:
+        if f.tags is None:
+            f.add_tags()
+        if ext == ".m4a":
+            fmt = MP4Cover.FORMAT_PNG if png else MP4Cover.FORMAT_JPEG
+            f.tags["covr"] = list(f.tags.get("covr") or []) + [MP4Cover(data, imageformat=fmt)]
+        else:  # own description: ID3 keeps one image per description
+            f.tags.add(APIC(encoding=3, mime=mime, type=3, desc=cover_digest(data), data=data))
+    f.save()
+
+
 def set_cover(path, data):
     """Front cover into the file's tags (MP3/WAV/AIFF: ID3 APIC, FLAC: picture block, M4A: covr)."""
     from mutagen.flac import Picture

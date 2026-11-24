@@ -31,7 +31,7 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 8. **Agrupa géneros parecidos**: `House/Tech House`, `Techno/Hard Techno`, `Melodic & Indie/…`, `Bass & Breaks/…`, `Dance & Mainstage/…`.
 9. **Pastas protegidas**: escolhes pastas em que a app nunca toca (os teus edits, sets já preparados).
 10. **Só faixas novas** (opção): mais rápido, arruma só o que chegou desde a última vez. As faixas que já tinhas não são tocadas. Na primeira vez que organizas uma pasta, ela é arrumada toda.
-11. **Põe capas** (opção) nas faixas sem capa, com a capa do lançamento (Deezer e, com a chave, Discogs). Nunca troca uma capa que já exista.
+11. **Põe capas** (opção) nas faixas sem capa, com a capa do lançamento (Deezer e, com a chave, Discogs). Nunca troca uma capa que já exista. Com **Trocar capas de sites** (opção), tira as capas que são publicidade de sites ou genéricas (ex.: símbolo do Beatport) e procura a verdadeira; as de artistas e labels ficam. **Ver capas repetidas…** deixa-te marcar as de sites novos.
 12. **Relatório**: mostra, sem mexer em nada, as faixas sem artista ou título, sem género, MP3 de menor qualidade, muito curtas ou com tags estragadas (lista para o Excel).
 
 **Formatos de áudio:** MP3, FLAC, AIFF/AIF, WAV e M4A.
@@ -99,7 +99,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 ## Privacidade
 
 - As chaves ficam em `%APPDATA%\GrooveWizard\config.json`, encriptadas com o Windows (DPAPI) sempre que o Windows o permite; só o teu utilizador neste PC as consegue ler. São enviadas apenas ao próprio serviço (Discogs ou Last.fm), na procura online e quando carregas em **Verificar**.
-- Na procura online, o Discogs recebe o artista e o título; o Last.fm e o MusicBrainz recebem o artista. Com **Pôr capas**, o Deezer (e o Discogs, se tiveres a chave) recebe o artista e o título das faixas sem capa, e as capas descarregadas ficam guardadas em `%APPDATA%\GrooveWizard\bibliotecas\`.
+- Na procura online, o Discogs recebe o artista e o título; o Last.fm e o MusicBrainz recebem o artista. Com **Pôr capas** ou **Trocar capas de sites**, o Deezer (e o Discogs, se tiveres a chave) recebe o artista e o título das faixas sem capa (ou com capa de site), e as capas descarregadas ficam guardadas em `%APPDATA%\GrooveWizard\bibliotecas\`.
 - Ao abrir, a app pergunta ao GitHub se há uma versão nova. Como em qualquer pedido na internet, o GitHub vê o teu IP. Isto acontece sempre, para avisar de cada versão nova.
 - Caches (artistas e títulos pesquisados), registos e o histórico para desfazer ficam em `%APPDATA%\GrooveWizard\bibliotecas\`, **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+. Se a app falhar, o erro fica em `%APPDATA%\GrooveWizard\erros.log`.
 - Nada é enviado aos autores.
@@ -146,7 +146,7 @@ python app.py
 - Looks up missing genres online (Discogs, Last.fm, optionally MusicBrainz) — an estimate, not a guarantee.
 - Splits tracks without a genre by BPM and saves the genre inside each track.
 - Removes website names (e.g. `www.djsoundtop.com`) from tags, and website names and track numbers (`05. `) from new tracks' file names; can name new tracks `Artist - Title (Extended Mix)`. Tracks from packs change right away, other new tracks after you confirm; tracks you already had keep their name unless you turn on the option for old tracks (it asks first).
-- Optionally adds cover art to tracks without one (Deezer, and Discogs with the key); existing covers are never replaced.
+- Optionally adds cover art to tracks without one (Deezer, and Discogs with the key); existing covers are never replaced. *Replace site covers* (option) takes out site ads and generic covers (e.g. the Beatport logo) and looks for the real one; *See repeated covers…* lets you tick the ones from new sites.
 - Protected folders are never touched; *Only new tracks* sorts only what arrived since last time; *Report* lists tracks with problems without changing anything.
 - Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
 
@@ -156,7 +156,7 @@ python app.py
 
 **Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics: review the preview and the quarantine. The installer reads BPM from tags only. Uninstalling keeps `%APPDATA%\GrooveWizard`.
 
-**Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. With *Add cover art*, Deezer (and Discogs with the key) receives artist and title of tracks without a cover. At start-up the app asks GitHub for the latest version (GitHub sees your IP; always on, so every new version is announced). Caches, logs and undo history live in `%APPDATA%\GrooveWizard`, outside the music folder; crashes are written to `%APPDATA%\GrooveWizard\erros.log`. The SHA-256 in each release proves integrity (the file is the one published), not authorship: the installer is unsigned, so download only from this repository's Releases. Nothing is sent to the authors.
+**Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. With *Add cover art* or *Replace site covers*, Deezer (and Discogs with the key) receives artist and title of tracks without a cover. At start-up the app asks GitHub for the latest version (GitHub sees your IP; always on, so every new version is announced). Caches, logs and undo history live in `%APPDATA%\GrooveWizard`, outside the music folder; crashes are written to `%APPDATA%\GrooveWizard\erros.log`. The SHA-256 in each release proves integrity (the file is the one published), not authorship: the installer is unsigned, so download only from this repository's Releases. Nothing is sent to the authors.
 
 **From source:** `pip install -r requirements.txt && python app.py`. Tests: `python tests/test_pipeline.py`. Bugs and ideas: open an [issue](../../issues). Security problems: report privately via [Security → Report a vulnerability](../../security/advisories/new), not in a public issue.
 

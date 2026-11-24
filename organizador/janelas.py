@@ -2,10 +2,12 @@
 import os
 import time
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
+from .capas import same
 from .i18n import t
 from .theme import C
 
@@ -137,7 +139,7 @@ def run_date(run_id):
 
 
 def run_summary(kinds):
-    parts = [t("hist." + k, n=kinds[k]) for k in ("mover", "quarentena", "tags", "capa", "extraido") if kinds.get(k)]
+    parts = [t("hist." + k, n=kinds[k]) for k in ("mover", "quarentena", "tags", "capa", "capa_fora", "extraido") if kinds.get(k)]
     return ", ".join(parts) or t("hist.nothing")
 
 
@@ -170,3 +172,42 @@ class HistoryDialog(QDialog):
 
     def chosen(self):
         return self.list.currentRow()
+
+
+class CoversDialog(QDialog):
+    """Covers used by many artists; ticked = not a real cover. exec() == Accepted: marked() is the new list."""
+
+    def __init__(self, found, marked, parent=None):
+        super().__init__(parent)
+        lay = _dialog(self, t("covers.title"), (1000, 700))
+        lay.addWidget(QLabel(t("covers.hint"), objectName="hint", wordWrap=True))
+        self.list = QListWidget()
+        self.list.setAccessibleName(t("covers.title"))
+        self.list.setViewMode(QListWidget.IconMode)
+        self.list.setIconSize(QSize(140, 140))
+        self.list.setGridSize(QSize(170, 200))
+        self.list.setResizeMode(QListWidget.Adjust)
+        self.list.setMovement(QListWidget.Static)
+        self.found = found
+        for f, data, n, artists in found:
+            pm = QPixmap()
+            pm.loadFromData(data)
+            it = QListWidgetItem(QIcon(pm.scaled(140, 140, Qt.KeepAspectRatio, Qt.SmoothTransformation)),
+                                 t("covers.item", n=n, artists=artists), self.list)
+            it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            it.setCheckState(Qt.Checked if any(same(f, m) for m in marked) else Qt.Unchecked)
+        # marked before but not in this library now: kept
+        self.kept = [m for m in marked if not any(same(f, m) for f, *_ in found)]
+        lay.addWidget(self.list, 1)
+        row = QHBoxLayout()
+        row.addStretch()
+        close, save = _button(t("btn.close")), _button(t("covers.save"), "primary")
+        close.clicked.connect(self.reject)
+        save.clicked.connect(self.accept)
+        row.addWidget(close)
+        row.addWidget(save)
+        lay.addLayout(row)
+
+    def marked(self):
+        return self.kept + [f for i, (f, *_) in enumerate(self.found)
+                            if self.list.item(i).checkState() == Qt.Checked]
