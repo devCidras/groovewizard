@@ -30,7 +30,7 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 7. **Limpa os nomes das faixas novas**: tira o site do nome do ficheiro e, se quiseres, dá o nome `Artista - Título (Extended Mix)`. As faixas dos packs mudam logo; outras faixas novas só depois de confirmares. As que já tinhas não mudam de nome (o rekordbox deixaria de as encontrar), a não ser que ligues a opção para as faixas antigas, que pergunta antes.
 8. **Agrupa géneros parecidos**: `House/Tech House`, `Techno/Hard Techno`, `Melodic & Indie/…`, `Bass & Breaks/…`, `Dance & Mainstage/…`.
 9. **Pastas protegidas**: escolhes pastas em que a app nunca toca (os teus edits, sets já preparados).
-10. **Só faixas novas** (opção): mais rápido, arruma só o que chegou desde a última vez. As faixas que já tinhas não são tocadas.
+10. **Só faixas novas** (opção): mais rápido, arruma só o que chegou desde a última vez. As faixas que já tinhas não são tocadas. Na primeira vez que organizas uma pasta, ela é arrumada toda.
 11. **Relatório**: mostra, sem mexer em nada, as faixas sem artista ou título, sem género, MP3 de menor qualidade, muito curtas ou com tags estragadas (lista para o Excel).
 
 **Formatos de áudio:** MP3, FLAC, AIFF/AIF, WAV e M4A.

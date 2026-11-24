@@ -68,8 +68,8 @@ HELP = {
 <ul>
   <li><b>Pastas protegidas</b> (em Biblioteca): pastas em que a app nunca toca, por exemplo os teus edits.</li>
   <li><b>Só faixas novas:</b> mais rápido. Arruma só o que chegou desde a última vez (packs e faixas novas, em
-      qualquer pasta). As faixas que já tinhas não são tocadas. De vez em quando organiza sem esta opção, para
-      arrumar tudo.</li>
+      qualquer pasta). As faixas que já tinhas não são tocadas. Na primeira vez que organizas uma pasta, ela é arrumada
+      toda. De vez em quando organiza sem esta opção, para arrumar tudo.</li>
   <li><b>Relatório:</b> mostra as faixas com problemas, sem mexer em nada: sem artista ou título, sem género, MP3 de
       menor qualidade ou muito curtas. Abre no Excel.</li>
 </ul>
@@ -137,7 +137,8 @@ HELP = {
 <ul>
   <li><b>Protected folders</b> (under Library): folders the app never touches, for example your own edits.</li>
   <li><b>Only new tracks:</b> faster. Only sorts what arrived since last time (packs and new tracks, in any folder).
-      Tracks you already had are left alone. Now and then organize without this option to tidy everything.</li>
+      Tracks you already had are left alone. The first time you organize a folder, all of it is sorted. Now and then
+      organize without this option to tidy everything.</li>
   <li><b>Report:</b> shows tracks with problems, without changing anything: no artist or title, no genre,
       lower-quality MP3 or very short. Opens in Excel.</li>
 </ul>

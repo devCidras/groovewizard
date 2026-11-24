@@ -394,8 +394,21 @@ def test_only_new():
     root = os.path.join(TMP, "novas")
     old = make(os.path.join(root, "solta", "A - Old.wav"), 1, "A", "Old", "Techno")
     opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=True, only_new=True)
-    pl.Organizer(opts).run()  # first run: no list of known tracks yet, so only _entrada counts
-    assert os.path.exists(old)
+    org = pl.Organizer(opts)
+    assert org.preview()["only_new_first"] == 1
+
+    def stop(*a):
+        raise pl.Cancelled()
+    org = pl.Organizer(opts, progress=stop)  # first organize cancelled straight away: nothing sorted yet
+    try:
+        org.run()
+    except pl.Cancelled:
+        pass
+    assert os.path.exists(old) and pl.Organizer(opts).only_new_first  # still sorts everything next time
+    rep, _ = pl.Organizer(opts).run()  # first organize of this library: everything is sorted, and the user is told
+    assert rep["only_new_first"] == 1 and not os.path.exists(old)
+    old = os.path.join(root, "Techno", "Techno", "A - Old.wav")
+    assert os.path.exists(old) and "only_new_first" not in pl.Organizer(opts).run()[0]  # from now on: only new
     new = make(os.path.join(root, "B - New.wav"), 3, "B", "New", "Techno")
     dup_old = make(os.path.join(root, "solta", "C - Same (Original Mix).wav"), 2, "C", "Same (Original Mix)", "House")
     org = pl.Organizer(opts)

@@ -229,7 +229,10 @@ S = {
                            "en": "Online lookup skipped: no Discogs/Last.fm keys and MusicBrainz is off."},
     # 1.5.0: only new tracks, protected folders, review list, undo history, library report
     "opt.only_new": {"pt": "Só faixas novas", "en": "Only new tracks"},
-    "opt.only_new_d": {"pt": "Mais rápido: arruma só o que chegou desde a última vez (packs e faixas novas, em qualquer pasta). As faixas que já tinhas não são tocadas.", "en": "Faster: only sorts what arrived since last time (packs and new tracks, in any folder). Tracks you already had are left alone."},
+    "opt.only_new_d": {"pt": "Mais rápido: arruma só o que chegou desde a última vez (packs e faixas novas, em qualquer pasta). As faixas que já tinhas não são tocadas. Na primeira vez que organizas uma pasta, é arrumada toda.", "en": "Faster: only sorts what arrived since last time (packs and new tracks, in any folder). Tracks you already had are left alone. The first time you organize a folder, all of it is sorted."},
+    "log.only_new_first": {"pt": "Primeira organização desta pasta: foi arrumada toda. A partir da próxima vez, 'Só faixas novas' arruma só o que chegar de novo.",
+                           "en": "First organize of this folder: all of it was sorted. From next time on, 'Only new tracks' sorts only what's new."},
+    "rep.only_new_first": {"pt": "primeira organização: pasta arrumada toda", "en": "first organize: whole folder sorted"},
     "protect.title": {"pt": "Pastas protegidas", "en": "Protected folders"},
     "protect.hint": {"pt": "Pastas em que a app nunca toca, por exemplo os teus edits ou sets já preparados.", "en": "Folders the app never touches, for example your own edits or prepared sets."},
     "protect.add": {"pt": "Adicionar…", "en": "Add…"},

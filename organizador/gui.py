@@ -818,7 +818,10 @@ class Window(QMainWindow):
         self.status.setText(t("status.preview_done") if kind == "preview" else t("status.done"))
         self.show_stats(rep)
         for k, v in sorted(rep.items(), key=lambda kv: -kv[1]):
-            self.log.appendPlainText(f"{v:>7}  {report_label(k)}")
+            if k != "only_new_first":  # a note, not a count
+                self.log.appendPlainText(f"{v:>7}  {report_label(k)}")
+        if rep.get("only_new_first"):
+            self.log.appendPlainText(t("log.only_new_first"))
         if errs:
             self.log.appendPlainText(t("log.warnings", n=len(errs)))
             for e in errs[:100]:

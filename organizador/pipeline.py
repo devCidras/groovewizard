@@ -235,6 +235,9 @@ class Organizer:
         self._fps = set(inv.get("fps", []))
         self._legacy_sizes = set(inv.get("legacy_sizes", []))
         self._fp_cache = inv.get("cache", {}) if isinstance(inv.get("cache"), dict) else {}  # rel -> [size, mtime, fp]
+        # a full organize reached its end at least once (lists from before 1.5.3 came from full organizes)
+        self._full_done = self.known is not None and bool(inv.get("full_done", True))
+        self._finished = False
         self._pending = set()  # never-seen tracks not settled yet (no answer, or the rename failed): stay new
         self._start = []
         self._settled = []
@@ -246,6 +249,10 @@ class Organizer:
         self._skip = {os.path.normcase(p) for p in (skip or [])}
         self._skip_paths = list(skip or [])
         self._fresh = set()  # only_new: tracks this run works on besides _entrada (followed when moved)
+        # 'Only new tracks' needs one full organize that reached its end (first time, or the first one was cancelled):
+        # until then the whole library is sorted
+        self.only_new = opts.only_new and self._full_done
+        self.only_new_first = opts.only_new and not self.only_new  # reported, so the user knows why it took longer
         self.plan = []  # filled by preview(): (kind, path, detail) rows for the review list
         self.snapshot = None  # filled by preview(): library_snapshot() the list was made from
         self.dup_best = {}  # duplicate -> the copy that stays
@@ -382,7 +389,7 @@ class Organizer:
         """Keeps where each track that was new at the start went, so the inventory follows it."""
         k = os.path.normcase(src)
         self._moved_from[os.path.normcase(dst)] = k
-        if self.opts.only_new and (k in self._fresh or self._in_inbox(src)):
+        if self.only_new and (k in self._fresh or self._in_inbox(src)):
             self._fresh.add(os.path.normcase(dst))
         if k in self._pending:
             self._pending.discard(k)
@@ -478,8 +485,9 @@ class Organizer:
                 cache[rel] = self._fp_cache[rel]
             except (OSError, KeyError):
                 legacy.add(size)  # here but no fingerprint: its size alone must keep counting as known
+        full_done = self._full_done or (self._finished and not self.only_new)
         _write_json(self._inventory_path, {"paths": sorted(paths), "sizes": sorted(sizes), "fps": sorted(fps),
-                                           "legacy_sizes": sorted(legacy), "cache": cache})
+                                           "legacy_sizes": sorted(legacy), "cache": cache, "full_done": full_done})
 
     def _in_inbox(self, p):
         return os.path.normcase(p).startswith(os.path.normcase(os.path.join(self.root, INBOX)) + os.sep)
@@ -491,7 +499,7 @@ class Organizer:
 
     def _in_scope(self, p):
         """'Only new tracks': _entrada and the tracks never seen before (where they went during this run)."""
-        return not self.opts.only_new or self._in_inbox(p) or os.path.normcase(p) in self._fresh
+        return not self.only_new or self._in_inbox(p) or os.path.normcase(p) in self._fresh
 
     def _walk(self, base=None):
         """os.walk of the library without protected folders, transfers in progress and the root-level '_' folders
@@ -973,6 +981,8 @@ class Organizer:
         if renames and self.known is not None:  # never-seen at the start: stay new if we stop before the question
             self._pending = {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)}
         self._fresh = self._new_tracks()
+        if self.only_new_first:
+            self.report["only_new_first"] = 1
         self._start = self._identities()  # where/what every track was before this run: Undo puts them back there
         self._start_paths = {os.path.normcase(p) for p in self.audio_files()}
         try:
@@ -980,6 +990,7 @@ class Organizer:
                 if on:
                     fn()
             self.remove_empty_dirs()
+            self._finished = True  # not cancelled, no crash
         finally:
             try:
                 self.save_inventory()
@@ -998,7 +1009,7 @@ class Organizer:
     def library_snapshot(self, files=None):
         """Tracks and packs as they are now (path, size, modified): the review list only holds while this is unchanged
         (a download finishing after the Preview would otherwise be organized without ever being on the list)."""
-        out = set()
+        out = {("only_new", self.only_new)}  # another window finishing a first organize changes what Organize does
         for p in list(files if files is not None else self.audio_files()) + self.pending_archives():
             try:
                 st = os.stat(p)
@@ -1009,7 +1020,7 @@ class Organizer:
 
     def _new_tracks(self):
         """'Only new tracks': the never-seen tracks outside _entrada (before the first run: none)."""
-        return {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)} if self.opts.only_new else set()
+        return {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)} if self.only_new else set()
 
     def _preview(self):
         """Counts for the summary, and self.plan: one row per track that will change, for the review list
@@ -1055,6 +1066,8 @@ class Organizer:
             if p in sites:
                 self.plan.append(("site_name", p, sites[p]))
         rep["tracks"] = len(files)
+        if self.only_new_first:
+            rep["only_new_first"] = 1
         # counted from the list: tracks headed for a protected folder were left out above (Organize leaves them)
         rep["site_names_ask"] = sum(1 for k, _, _ in self.plan if k == "site_name")
         rep["rename_ask"] = sum(1 for k, _, _ in self.plan if k == "rename_ask")
