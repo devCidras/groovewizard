@@ -162,6 +162,9 @@ def too_broad(root):
     return False
 
 
+_last_run_ns = 0  # last run id time handed out in this process
+
+
 def _content_fp(path, size):
     """'size:hash' of 32 KB from the middle of the file: the music, not the tags at its ends."""
     with open(path, "rb") as fh:
@@ -213,7 +216,8 @@ class Organizer:
         self.errors = []
         self._log = None
         # sorts by name in time order (Undo relies on it): fixed-width nanoseconds before the pid
-        now = time.time_ns()
+        global _last_run_ns
+        now = _last_run_ns = max(time.time_ns(), _last_run_ns + 1)  # Windows clock ticks are coarse: never repeat
         self.run_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(now // 10**9)) + f"-{now % 10**9:09d}-{os.getpid()}"
         self.qdir = os.path.join(self.root, QUARANTINE, self.run_id)
         self._overrides_path = os.path.join(self.data, "generos_corrigidos.json")
