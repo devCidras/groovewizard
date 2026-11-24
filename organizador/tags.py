@@ -241,7 +241,8 @@ def pack_file_name(path, info):
 # in file names only unmistakable sites: 'www.' / 'http' anywhere, or a .com/.net/.org/.ru/.info domain in brackets
 # (stricter than strip_sites for tags: a title like 'Love.me' must never lose words from the name)
 _FILE_SITE = re.compile(r"\s*[\[(]\s*(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info)\s*[\])]"
-                        r"|\s*[-|–—]?\s*(?:https?://|www\.)\S+", re.I)  # with the '-' that glued it on
+                        r"|\s*[-|–—]?\s*" + r"(?:https?://\S+|www\.[\w-]+(?:\.[\w-]+)*\.[a-z]{2,24}\b(?:/\S*)?)", re.I)
+# (with the '-' that glued it on; www.* stops at its top-level domain: 'www.site.com-Extended-Mix' keeps the mix)
 
 
 def site_free_name(path):

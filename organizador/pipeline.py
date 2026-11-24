@@ -226,8 +226,10 @@ class Organizer:
         # unticked in the preview list
         self._protected = protectable(self.root, opts.protected)
         self._skip = {os.path.normcase(p) for p in (skip or [])}
+        self._skip_paths = list(skip or [])
         self._fresh = set()  # only_new: tracks this run works on besides _entrada (followed when moved)
         self.plan = []  # filled by preview(): (kind, path, detail) rows for the review list
+        self.snapshot = None  # filled by preview(): library_snapshot() the list was made from
         self.dup_best = {}  # duplicate -> the copy that stays
 
     # ---------- helpers ----------
@@ -395,13 +397,26 @@ class Organizer:
                             pass
         return out
 
+    def _unticked_identities(self):
+        """Tracks unticked in the review list that were not new (old ones, or any outside _entrada before the first
+        run): known, like the rest of the library. Unticked new tracks stay new and are dealt with next time."""
+        out = []
+        for p in self._skip_paths:
+            if os.path.isfile(p) and is_audio(p) and not self._in_inbox(p) and not self.is_new(p):
+                try:
+                    out.append((self._rel(p), os.path.getsize(p)))
+                except OSError:
+                    pass
+        return out
+
     def save_inventory(self):
         """Runs at the end of every run, finished or not. The list only grows: every track in the library becomes
         known, except never-seen ones still waiting for an answer or whose rename failed (asked again next time).
         Growing only means Undo, cancel or a half-done Undo can never make an old track look new."""
         paths, sizes = self.known if self.known is not None else (set(), set())
         paths, sizes = set(paths), set(sizes)
-        for rel, size in self._start + self._settled + self._identities(end=True) + self._protected_identities():
+        for rel, size in (self._start + self._settled + self._identities(end=True) + self._protected_identities()
+                          + self._unticked_identities()):
             paths.add(rel)
             sizes.add(size)
         _write_json(self._inventory_path, {"paths": sorted(paths), "sizes": sorted(sizes)})
@@ -680,7 +695,9 @@ class Organizer:
         infos = self._read_all(files, "organize")
         inbox_names, outside, sites = self.rename_plan(files, infos)
         self._pending -= {os.path.normcase(p) for p in files if p not in outside}  # nothing to ask about them
-        if outside and not (self.ask_rename and self.ask_rename(sorted(outside.items()))):
+        # without 'Artist - Title' names only the site comes out: the question must say so
+        kind = "new_sites" if all(n == site_free_name(p) for p, n in outside.items()) else "new"
+        if outside and not (self.ask_rename and self.ask_rename(sorted(outside.items()), kind)):
             for p in outside:  # "No": known from now on, never asked again
                 self._settle(p)
             outside = {}
@@ -759,13 +776,16 @@ class Organizer:
                 ranked = sorted(v, key=lambda x: self._score(x[0], x[1], infos[x[0]]["title"]), reverse=True)
                 # only new: an old copy is never removed (the rest of the library is left as it is), even if the
                 # new one is better; a full run sorts that out
-                losers = [p for p in self._losers(ranked, infos) if self._in_scope(p)]
+                losers = [p for p in self._losers(ranked, infos) if self._in_scope(p) and not self.left_alone(p)]
                 self.dup_best.update((p, ranked[0][0]) for p in losers)
                 out += losers
         return out
 
     def step_dedupe(self):
-        infos = self._read_all(list(self.audio_files()), "dedupe_scan")
+        # unticked tracks still count as copies (the list promised 'X goes, Y stays' even if Y was unticked),
+        # they are just never the one removed (find_duplicates skips left_alone)
+        kept = [p for p in self._skip_paths if os.path.isfile(p) and is_audio(p)]
+        infos = self._read_all(list(self.audio_files()) + kept, "dedupe_scan")
         losers = [p for p in self.find_duplicates(infos) if os.path.exists(p)]
         for i, p in enumerate(losers, 1):
             self._tick("dedupe_remove", i, len(losers), os.path.basename(p))
@@ -874,8 +894,12 @@ class Organizer:
 
     # ---------- run / preview ----------
 
-    def run(self):
+    def run(self, expect=None):
+        """expect: library_snapshot() of the Preview whose list the user reviewed; checked under the lock, so a track
+        arriving after the review is never organized on the strength of a list it was not on."""
         with library_lock(self.root):
+            if expect is not None and self.library_snapshot() != expect:
+                raise ValueError(t("plan.stale"))
             _purge_quarantine(self.root, QUARANTINE_DAYS)  # here, not in __init__: Preview must not change anything
             prune_logs(self.data)
             return self._run()
@@ -910,6 +934,18 @@ class Organizer:
         with library_lock(self.root):
             return self._preview()
 
+    def library_snapshot(self, files=None):
+        """Tracks and packs as they are now (path, size, modified): the review list only holds while this is unchanged
+        (a download finishing after the Preview would otherwise be organized without ever being on the list)."""
+        out = set()
+        for p in list(files if files is not None else self.audio_files()) + self.pending_archives():
+            try:
+                st = os.stat(p)
+                out.add((os.path.normcase(p), st.st_size, st.st_mtime_ns))
+            except OSError:
+                pass
+        return frozenset(out)
+
     def _new_tracks(self):
         """'Only new tracks': the never-seen tracks outside _entrada (before the first run: none)."""
         return {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)} if self.opts.only_new else set()
@@ -923,6 +959,7 @@ class Organizer:
             rep["archives_pending"] = len(self.pending_archives())
         self._fresh = self._new_tracks()
         files = list(self.audio_files())
+        self.snapshot = self.library_snapshot(files)
         infos = self._read_all(files, "preview")  # all of them: duplicates are looked for in the whole library
         inbox_names, outside, sites = self.rename_plan([p for p in files if self._in_scope(p)], infos)
         for p, info in infos.items():
@@ -957,8 +994,9 @@ class Organizer:
             if p in sites:
                 self.plan.append(("site_name", p, sites[p]))
         rep["tracks"] = len(files)
-        rep["site_names_ask"] = len(sites)
-        rep["rename_ask"] = len(outside)
+        # counted from the list: tracks headed for a protected folder were left out above (Organize leaves them)
+        rep["site_names_ask"] = sum(1 for k, _, _ in self.plan if k == "site_name")
+        rep["rename_ask"] = sum(1 for k, _, _ in self.plan if k == "rename_ask")
         if self.opts.dedupe:
             dups = self.find_duplicates(infos)
             rep["dups_pending"] = len(dups)
@@ -1108,7 +1146,9 @@ def _pending_logs(runs_dir):
     jumps back an hour when summer time ends (the name breaks ties)."""
     def key(f):
         try:
-            return os.stat(os.path.join(runs_dir, f)).st_ctime_ns, f
+            st = os.stat(os.path.join(runs_dir, f))
+            # creation time: st_birthtime (Python 3.12+); st_ctime is creation time on older Windows Pythons only
+            return getattr(st, "st_birthtime_ns", None) or st.st_ctime_ns, f
         except OSError:
             return 0, f
     return sorted((f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv")), key=key)

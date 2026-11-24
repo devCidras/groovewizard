@@ -191,9 +191,9 @@ def test_new_tracks_outside_inbox():
     opts = pl.Options(root=root, online=False, bpm_folders=False, dedupe=False, write_tags=False, clean_sites=False,
                       rename_packs=True)
     asked = []
-    yes = lambda items: asked.append(items) or True
+    yes = lambda items, kind="new": asked.append(items) or True
 
-    def cancel(items):
+    def cancel(items, kind="new"):
         raise pl.Cancelled()
 
     pl.Organizer(opts, ask_rename=yes).run()
@@ -243,7 +243,7 @@ def test_new_tracks_outside_inbox():
     assert pl.Organizer(opts).preview()["rename_ask"] == 1
 
     make(os.path.join(root, "outra.wav"), 5, "Ann", "Other", "Tech House")
-    rep, errs = pl.Organizer(opts, ask_rename=lambda items: False).run()  # "No": kept, and never asked again
+    rep, errs = pl.Organizer(opts, ask_rename=lambda items, kind="new": False).run()  # "No": kept, and never asked again
     assert not errs and not rep["renamed"] and os.path.exists(os.path.join(th, "outra.wav")), (rep, errs)
     assert not pl.Organizer(opts).preview().get("rename_ask")
 
@@ -345,6 +345,25 @@ def test_protected_and_skip():
     assert os.path.exists(os.path.join(root, "House", "Tech House", "A - Song (Extended Mix).wav"))
     assert "dups_trashed" not in rep  # the protected copy is not compared, never removed
 
+    # unticking the copy that stays: the other copy still goes (the list said so), the unticked one is never removed
+    keep = make(os.path.join(root, "K - Song (Extended Mix).wav"), 3, "K", "Song (Extended Mix)", "Tech House")
+    dup = make(os.path.join(root, "solta", "K - Song (Original Mix).wav"), 1, "K", "Song (Original Mix)", "Tech House")
+    org = pl.Organizer(opts)
+    org.preview()
+    assert ("dup", dup, keep) in org.plan
+    snap = org.snapshot
+    assert pl.Organizer(opts).library_snapshot() == snap  # nothing changed: the list holds
+    make(os.path.join(root, "novo.wav"), 1, "N", "Novo", "Techno")
+    assert pl.Organizer(opts).library_snapshot() != snap  # a new download: the list no longer holds
+    try:
+        pl.Organizer(opts).run(expect=snap)
+        raise AssertionError("ran on a stale list")
+    except ValueError:
+        pass
+    os.remove(os.path.join(root, "novo.wav"))
+    rep, errs = pl.Organizer(opts, skip=[keep, untick]).run()
+    assert rep["dups_trashed"] == 1 and not os.path.exists(dup) and os.path.exists(keep)
+
     # a protected target folder: nothing is moved into it
     techno = os.path.join(root, "Techno")
     os.makedirs(techno, exist_ok=True)
@@ -433,6 +452,7 @@ def test_site_names():
     assert site_free_name("Artist - Love.me.wav") is None and site_free_name("Artist  -  Title.wav") is None
     assert site_free_name("Clouds - Mutate On-Site-www.groovytunes.org.mp3") == "Clouds - Mutate On-Site.mp3"
     assert site_free_name("A - Title-www.site.com (Extended Mix).mp3") == "A - Title (Extended Mix).mp3"
+    assert site_free_name("Artist-www.site.com-Extended-Mix.mp3") == "Artist-Extended-Mix.mp3"  # the mix stays
     assert strip_sites("DUMBO-www.groovytunes.org") == "DUMBO"  # tag: a glued site never takes the title with it
     # 'Artist - Title' taken: the original name without the site is used instead
     root = os.path.join(TMP, "sites2")
@@ -454,7 +474,7 @@ def test_site_names():
     assert not errs, errs
     here = os.path.join(root, "Techno", "Techno")
     assert os.path.exists(os.path.join(here, "B - New (Extended Mix).wav"))  # _entrada: no question
-    assert os.path.exists(os.path.join(here, "C - Loose.wav")) and asked == [("new", 1)]  # new outside: asked
+    assert os.path.exists(os.path.join(here, "C - Loose.wav")) and asked == [("new_sites", 1)]  # new outside: asked
     assert os.path.exists(old)  # option for existing tracks is off
 
     opts.site_names = True
@@ -468,6 +488,17 @@ def test_site_names():
     assert os.path.exists(os.path.join(here, "A - Old (Original Mix).wav")) and not os.path.exists(old)
     pl.undo_last(root)
     assert os.path.exists(old)  # Undo puts the old name back
+
+
+def test_unticked_on_first_run_stay_known():
+    root = os.path.join(TMP, "untick1")
+    old = make(os.path.join(root, "Misc", "A - One.wav"), 9, "A", "One", "House")  # unique length: known by path only
+    opts = pl.Options(root=root, online=False, bpm_folders=False)
+    pl.Organizer(opts, skip=[old]).run()  # first run ever, the old track unticked
+    assert os.path.exists(old)
+    opts.only_new = True
+    pl.Organizer(opts).run()
+    assert os.path.exists(old), "an old track unticked on the first run became 'new' and was moved"
 
 
 if __name__ == "__main__":
@@ -486,6 +517,7 @@ if __name__ == "__main__":
         test_only_new()
         test_undo_history_and_report()
         test_site_names()
+        test_unticked_on_first_run_stay_known()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

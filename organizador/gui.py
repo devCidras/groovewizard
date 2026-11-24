@@ -183,7 +183,7 @@ class Worker(QObject):
         super().__init__()
         self.kind, self.opts, self.keys, self.cancel = kind, opts, keys, cancel
         self.extra = extra or {}  # undo: {"until": run_id}; run: {"skip": [paths unticked in the review list]}
-        self.plan, self.report_path = [], None  # results the window reads after a preview / report
+        self.plan, self.snapshot, self.report_path = [], None, None  # results the window reads after a preview / report
         self._answer, self._answered = False, threading.Event()
 
     def answer(self, yes):
@@ -218,8 +218,8 @@ class Worker(QObject):
             else:
                 org = Organizer(self.opts, self.keys, emit, self.cancel, ask_rename=self.ask_rename,
                                 skip=self.extra.get("skip"))
-                rep, errs = (org.preview(), []) if self.kind == "preview" else org.run()
-                self.plan = org.plan
+                rep, errs = (org.preview(), []) if self.kind == "preview" else org.run(self.extra.get("snapshot"))
+                self.plan, self.snapshot = org.plan, org.snapshot
             self.finished.emit(self.kind, rep, errs)
         except Cancelled:
             self.failed.emit(t("msg.cancelled"))
@@ -729,11 +729,15 @@ class Window(QMainWindow):
         if d.exec() != PlanDialog.Accepted:
             return
         skip = d.skipped()
-        if any(not os.path.exists(p) for p in skip):  # renamed/moved since the Preview: it would no longer be left alone
+        try:
+            same = Organizer(opts).library_snapshot() == self._plan_snapshot
+        except (OSError, ValueError):
+            same = False
+        if not same:  # tracks or packs added, moved, renamed or changed since the Preview: the list no longer holds
             self.btn_plan.hide()
             QMessageBox.information(self, t("plan.title"), t("plan.stale"))
             return
-        self.start("run", opts, keys, {"skip": skip})
+        self.start("run", opts, keys, {"skip": skip, "snapshot": self._plan_snapshot})  # checked again under the lock
 
     def do_cancel(self):
         self.cancel.set()
@@ -746,7 +750,8 @@ class Window(QMainWindow):
         if self.cancel.is_set():
             worker.answer(False)
             return
-        prefix = "sites" if kind == "sites" else "rename"  # sites: tracks you already had, maybe in rekordbox
+        # sites: tracks you already had (maybe in rekordbox); new_sites: new tracks, only the site comes out
+        prefix = {"sites": "sites", "new_sites": "newsites"}.get(kind, "rename")
         box = QMessageBox(QMessageBox.Question, t(prefix + ".title"), t(prefix + ".ask", n=len(items)),
                           QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, self)
         box.setDefaultButton(QMessageBox.No)
@@ -822,7 +827,7 @@ class Window(QMainWindow):
             self.log.appendPlainText(t("log.rekordbox"))
         if kind == "preview":
             self.log.appendPlainText(t("log.preview_limits"))
-            self._plan = self.worker.plan
+            self._plan, self._plan_snapshot = self.worker.plan, self.worker.snapshot
             if self._plan:
                 tracks = len({p for _, p, _ in self._plan})  # same count as the list window (tracks, not rows)
                 self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
