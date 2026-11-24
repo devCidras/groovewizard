@@ -21,17 +21,17 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 
 ## O que faz
 
-1. **Extrai os packs** `.zip`, `.rar` e `.7z`, incluindo packs dentro de packs (`.rar`/`.7z` precisam do [7-Zip](https://7-zip.org)).
-2. **Arruma por género** pela tag Genre. Sem tag, usa o nome do pack (ex.: "Best New Hard Techno" → `Techno/Hard Techno`). Sem nada, vai para `Sem Genero`.
-3. **Remove repetidas**: mesmos artistas (em qualquer ordem) + mesmo título, ignorando "Original Mix"/"Extended Mix". Fica a **Extended** (quando o nome do ficheiro ou o título dizem "Extended"), senão a mais longa, senão a lossless. Remixes diferentes e gravações com durações muito diferentes ficam as duas. Opção para manter Radio Edit / Club Mix como faixas separadas.
-4. **Procura online** o género das faixas sem género: Discogs (estilos dos lançamentos onde a faixa aparece), Last.fm e, opcionalmente, MusicBrainz (estes dois por artista). O resultado é mapeado para as pastas da app; é uma estimativa, não uma garantia.
-5. **Separa por BPM** as pastas `Sem Genero` e `Outros` (`BPM 122-128`, `BPM 128-135`, …).
-6. **Corrige as tags**: grava o género da pasta na tag Genre (o rekordbox/Serato passam a mostrar esse género) e tira nomes de sites de download do Álbum, Título, Comentário, etc. Também tira o site do nome das faixas novas; nas que já tens, só com a opção própria, que pergunta antes (o rekordbox deixa de as encontrar e é preciso importá-las outra vez).
-7. **Dá nome às faixas novas** (opção): as que saem dos packs ou que puseres na pasta `_entrada` ficam `Artista - Título (Extended Mix)` sem perguntar; outras faixas que a app nunca viu (por exemplo soltas na raiz) só depois de confirmares. Na primeira vez que organizas, só a `_entrada` conta. Nome: artista e título das tags, a versão do título ou, se lá não estiver, do nome antigo. As que já tinhas não mudam de nome, para o rekordbox continuar a encontrá-las.
-8. **Agrupa em pastas-mãe**: `House/Tech House`, `Techno/Hard Techno`, `Melodic & Indie/…`, `Bass & Breaks/…`, `Dance & Mainstage/…`.
-9. **Pastas protegidas**: escolhes pastas em que a app nunca mexe (edits teus, pastas já preparadas).
-10. **Só faixas novas** (opção): só mexe na `_entrada` e nas faixas que a app ainda não conhecia. Mais rápido; o resto fica como está.
-11. **Relatório**: sem mexer em nada, lista as faixas sem artista/título, sem género, MP3 abaixo de 320 kbps, com menos de 1 minuto ou com tags estragadas (CSV para o Excel).
+1. **Descompacta os packs** que descarregaste (`.zip`, `.rar`, `.7z`, mesmo packs dentro de packs). Para `.rar` e `.7z` é preciso o [7-Zip](https://7-zip.org).
+2. **Arruma por género**: cada faixa vai para a pasta do seu género (ex.: `House/Tech House`). Se a faixa não disser o género, usa o nome do pack (ex.: "Best New Hard Techno" → `Techno/Hard Techno`). Se não houver nada, vai para `Sem Genero`.
+3. **Tira as repetidas**: se tens a mesma faixa duas vezes, fica a melhor (a Extended, senão a mais longa, senão a de melhor qualidade). A outra vai para a quarentena durante 30 dias. Remixes diferentes não contam como repetidas.
+4. **Procura o género online** das faixas que não o têm (Discogs, Last.fm e, se quiseres, MusicBrainz). É uma estimativa, não uma garantia.
+5. **Separa por BPM** as faixas sem género (`BPM 122-128`, `BPM 128-135`, …).
+6. **Limpa as tags**: grava o género dentro da faixa (o rekordbox / Serato passam a mostrá-lo) e tira nomes de sites como `www.djsoundtop.com` do título, álbum e comentários.
+7. **Limpa os nomes das faixas novas**: tira o site do nome do ficheiro e, se quiseres, dá o nome `Artista - Título (Extended Mix)`. As faixas dos packs mudam logo; outras faixas novas só depois de confirmares. As que já tinhas não mudam de nome (o rekordbox deixaria de as encontrar), a não ser que ligues a opção para as faixas antigas, que pergunta antes.
+8. **Agrupa géneros parecidos**: `House/Tech House`, `Techno/Hard Techno`, `Melodic & Indie/…`, `Bass & Breaks/…`, `Dance & Mainstage/…`.
+9. **Pastas protegidas**: escolhes pastas em que a app nunca toca (os teus edits, sets já preparados).
+10. **Só faixas novas** (opção): mais rápido, arruma só o que chegou desde a última vez. As faixas que já tinhas não são tocadas.
+11. **Relatório**: mostra, sem mexer em nada, as faixas sem artista ou título, sem género, MP3 de menor qualidade, muito curtas ou com tags estragadas (lista para o Excel).
 
 **Formatos de áudio:** MP3, FLAC, AIFF/AIF, WAV e M4A.
 
@@ -40,8 +40,8 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 | A organizar | No fim |
 |---|---|
 | <img src="docs/2-a-organizar.png" alt="A organizar, com o progresso de cada passo"> | <img src="docs/3-resumo.png" alt="Resumo no fim da organização"> |
-| **Ver lista: o que vai mudar, faixa a faixa** | **Desfazer até uma execução antiga** |
-| <img src="docs/8-lista.png" alt="Lista do que vai mudar, com faixas desmarcadas"> | <img src="docs/9-desfazer.png" alt="Lista de execuções para desfazer"> |
+| **Ver lista: o que vai mudar, faixa a faixa** | **Desfazer: voltar a uma organização anterior** |
+| <img src="docs/8-lista.png" alt="Lista do que vai mudar, com faixas desmarcadas"> | <img src="docs/9-desfazer.png" alt="Lista de organizações para desfazer"> |
 | **Ajuda dentro da app** | **Termos na primeira utilização (EN)** |
 | <img src="docs/4-ajuda.png" alt="Ajuda"> | <img src="docs/5-termos-en.png" alt="Termos e Condições em inglês"> |
 | **Aviso de versão nova** | **Interface em inglês** |
@@ -49,10 +49,10 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 
 ## Proteções
 
-- **Pré-visualizar** mostra o que vai mudar, sem mexer em nada, e **Ver lista** mostra-o faixa a faixa: podes desmarcar faixas para ficarem como estão. Não consegue prever as faixas que ainda estão dentro dos packs, os resultados da procura online nem a limpeza de sites nas tags.
-- **Desfazer…** mostra as últimas execuções e desfaz até à que escolheres, da mais recente para a mais antiga: devolve os ficheiros, repõe as tags originais e desfaz a extração dos packs. Não consegue repor o que entretanto foi apagado, mudado à mão, esvaziado da quarentena ou ocupado por outro ficheiro com o mesmo nome; nesses casos diz quais.
-- **Quarentena**: repetidas e lixo vão para `_quarentena` (pasta escondida dentro da biblioteca). Passados 30 dias, são enviados para a Reciclagem na próxima vez que organizares (ou já, com **Esvaziar quarentena**).
-- As tags são gravadas numa cópia verificada antes de substituir o original. Ficheiros que o mutagen não consegue abrir de todo não são movidos nem alterados. No fim, as pastas que ficaram vazias são removidas.
+- **Pré-visualizar** mostra o que vai mudar, sem mexer em nada. **Ver lista** mostra-o faixa a faixa e deixa-te desmarcar as faixas em que não queres mexer. (Não consegue prever as faixas ainda dentro dos packs nem os resultados da procura online.)
+- **Desfazer…** mostra as últimas organizações e volta atrás até à que escolheres: as faixas regressam ao sítio, as repetidas saem da quarentena e as tags voltam ao que eram. O que não conseguir repor (apagado ou mudado à mão entretanto) aparece numa lista.
+- **Quarentena**: as repetidas vão para uma pasta escondida (`_quarentena`) dentro da biblioteca. Ficam lá 30 dias e depois vão para a Reciclagem (ou já, com **Esvaziar quarentena**).
+- As tags são gravadas primeiro numa cópia, que é verificada antes de substituir a faixa. Ficheiros estragados (que não se conseguem ler) não são mexidos. No fim, as pastas que ficaram vazias são apagadas.
 - Recusa pastas perigosas (disco inteiro, pasta do utilizador, Windows, Program Files, AppData) e não deixa duas janelas organizar a mesma biblioteca.
 
 ## Como usar
@@ -71,7 +71,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 ## Requisitos e limites
 
 - Windows 10 ou 11. O instalador já inclui o Python; não é preciso instalar nada além do 7-Zip (só para `.rar`/`.7z`).
-- Espaço livre: o que os packs ocupam depois de extraídos, mais 1 GB de margem.
+- Espaço livre: o que os packs ocupam depois de descompactados, mais 1 GB de margem.
 - Internet só é precisa para a procura online e para o aviso de versão nova.
 - **Não mexe nas bases de dados do rekordbox ou do Serato** (playlists, cues, beat grids): só move ficheiros e altera tags. Depois de organizar, é preciso voltar a localizar os ficheiros no programa de DJ. O fluxo está documentado para o rekordbox; no Serato não foi testado.
 - A deteção de repetidas e a procura online são estimativas: revê a pré-visualização e, se tiveres dúvidas, a pasta `_quarentena` antes de a esvaziar.
@@ -84,7 +84,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 
 **Depois de organizar, o rekordbox mostra faixas com "!".** É normal: os ficheiros mudaram de pasta. *Gerir faixas inexistentes → Auto Relocate*.
 
-**Os `.rar` não são extraídos.** Instala o [7-Zip](https://7-zip.org).
+**Os `.rar` não descompactam.** Instala o [7-Zip](https://7-zip.org).
 
 **Ficaram muitas faixas em `Sem Genero`.** Confirma as chaves (botão **Verificar**) e liga o MusicBrainz nas opções (mais lento).
 
@@ -135,9 +135,17 @@ python app.py
 > ⚠️ **Back up your music before the first run.** GrooveWizard moves files and edits tags. Preview, Undo and the
 > quarantine are safeguards, not a backup.
 
-**What it does:** extracts downloaded packs (zip/rar/7z, nested too; rar/7z need [7-Zip](https://7-zip.org)), sorts tracks into genre/subgenre folders (by Genre tag, else by pack name), removes duplicates (same artists + title; keeps the Extended Mix when the file name or title says so, else the longest, else lossless; different remixes and recordings with very different lengths are kept), looks up missing genres online (Discogs styles of matching releases; Last.fm and MusicBrainz per artist — an estimate, not a guarantee), splits tracks without a genre by BPM, optionally names new tracks (from packs, or put in the library's `_entrada` folder) `Artist - Title (Extended Mix)` (artist and title from the tags; the version from the title, else from the old file name); other tracks the app has never seen, e.g. loose in the root, only after you confirm (tracks you already had keep their name, so rekordbox still finds them) and cleans tags (genre written from the folder; download-site names removed from Album/Title/Comment, and from new tracks' file names; existing tracks only with their own option, which asks first because rekordbox then has to import them again). Protected folders are never touched; *Only new tracks* works on `_entrada` and never-seen tracks only; *Report* lists tracks without artist/title or genre, MP3 under 320 kbps, under 1 minute or with damaged tags, without changing anything. Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
+**What it does:**
+- Unpacks the packs you download (zip/rar/7z, packs inside packs too; rar/7z need [7-Zip](https://7-zip.org)).
+- Puts each track in the folder of its genre (from the track's genre, else from the pack name).
+- Removes duplicates: the best copy stays (the Extended, else the longest); the other goes to quarantine for 30 days.
+- Looks up missing genres online (Discogs, Last.fm, optionally MusicBrainz) — an estimate, not a guarantee.
+- Splits tracks without a genre by BPM and saves the genre inside each track.
+- Removes website names (e.g. `www.djsoundtop.com`) from tags and from new tracks' file names; can name new tracks `Artist - Title (Extended Mix)`. Tracks from packs change right away, other new tracks after you confirm; tracks you already had keep their name unless you turn on the option for old tracks (it asks first).
+- Protected folders are never touched; *Only new tracks* sorts only what arrived since last time; *Report* lists tracks with problems without changing anything.
+- Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
 
-**Safeguards:** Preview changes nothing (it cannot predict tracks still inside packs, online results or site cleaning); *See list* shows it track by track and lets you untick tracks. *Undo…* lists recent runs and undoes back to the one you pick, newest first; it tries to restore files, original tags and pack extraction, and lists anything it could not restore (deleted, changed by hand, emptied from quarantine, name taken). Removed files go to a hidden `_quarentena` folder; after 30 days they are sent to the Recycle Bin on the next run, or at once with *Empty quarantine*. Tags are written to a verified copy first; files mutagen cannot open at all are never moved or edited. Folders left empty are removed at the end. Dangerous folders are refused; two windows cannot organize the same library.
+**Safeguards:** *Preview* changes nothing and *See list* shows every change track by track, so you can untick tracks. *Undo…* goes back to any recent organize: tracks return to where they were, duplicates come out of quarantine and tags go back to what they were. Removed tracks wait 30 days in a hidden `_quarentena` folder before going to the Recycle Bin. Tags are written to a checked copy first. Dangerous folders (whole drive, user folder, Windows) are refused.
 
 **Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check**, close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*: the PC shuts down (60 s to cancel) only if the run finishes without errors. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
 

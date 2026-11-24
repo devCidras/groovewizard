@@ -26,149 +26,139 @@ HELP = {
     "pt": """
 <h2>Como usar</h2>
 <ol>
-  <li><b>Fecha o rekordbox / Serato.</b> A app move ficheiros e eles não podem estar abertos.</li>
-  <li><b>Biblioteca:</b> escolhe a pasta onde tens as músicas (ex.: <code>D:\\musica</code>).
-      Os packs <code>.zip</code>/<code>.rar</code> descarregados podem ficar lá dentro.</li>
-  <li><b>Fontes online</b> (opcional, recomendado): cola as chaves grátis do Discogs e do Last.fm.
-      Servem para descobrir o género das faixas que não o têm.</li>
-  <li><b>Passos:</b> liga ou desliga o que queres que a app faça.</li>
-  <li><b>Pré-visualizar</b> mostra o que ia mudar, <b>sem mexer em nada</b>.</li>
+  <li><b>Fecha o rekordbox / Serato.</b> A app mexe nos ficheiros e eles não podem estar abertos.</li>
+  <li><b>Biblioteca:</b> escolhe a pasta onde tens as músicas (ex.: <code>D:\\musica</code>). Os packs que
+      descarregas (.zip, .rar) podem ficar lá dentro: a app descompacta-os.</li>
+  <li><b>Fontes online</b> (opcional): cola as chaves grátis do Discogs e do Last.fm. Ajudam a descobrir o género
+      das faixas que não o têm.</li>
+  <li><b>Passos:</b> liga só o que queres que a app faça.</li>
+  <li><b>Pré-visualizar</b> mostra o que vai mudar, <b>sem mexer em nada</b>. Depois aparece <b>Ver lista</b>,
+      com cada faixa: podes desmarcar as que não queres que sejam tocadas.</li>
   <li><b>Organizar</b> faz as mudanças. Podes <b>Cancelar</b> a meio: o que já foi feito fica feito.</li>
-  <li>No fim, no <b>rekordbox</b>: <i>Ficheiro › Gerir faixas inexistentes › Auto Relocate</i> (escolhe a pasta)
-      e depois, na Coleção, <i>Ctrl+A › botão direito › Recarregar tag</i>.</li>
+  <li>No fim, no <b>rekordbox</b>: <i>Ficheiro › Gerir faixas inexistentes › Auto Relocate</i> (escolhe a pasta) e
+      depois, na Coleção, <i>Ctrl+A › botão direito › Recarregar tag</i>.</li>
 </ol>
 <h3>Criar as chaves (grátis, 2 minutos)</h3>
 <p><b>Discogs:</b> entra em <a href="https://www.discogs.com/settings/developers">discogs.com/settings/developers</a>
    e carrega em <i>Generate new token</i>.<br>
-   <b>Last.fm:</b> em <a href="https://www.last.fm/api/account/create">last.fm/api/account/create</a> preenche
-   nome e descrição; copia a <i>API key</i> (não precisas do <i>shared secret</i>).</p>
-<h3>O que acontece às faixas</h3>
+   <b>Last.fm:</b> em <a href="https://www.last.fm/api/account/create">last.fm/api/account/create</a> preenche nome e
+   descrição e copia a <i>API key</i>.</p>
+<h3>O que a app faz às faixas</h3>
 <ul>
-  <li><b>Géneros:</b> cada faixa vai para a pasta do seu género (ex.: <code>House\\Tech House</code>).
-      Sem tag, usa o nome do pack; sem nada, fica em <code>Sem Genero</code>.</li>
-  <li><b>Repetidas:</b> fica a <b>Extended Mix</b>; se não houver, a mais longa; depois a lossless.
-      As outras vão para a <b>quarentena</b> (pasta escondida <code>_quarentena</code>), onde ficam 30 dias antes de irem para a Reciclagem.</li>
-  <li><b>Outros:</b> géneros com poucas faixas (Pop, Hardstyle, Rock…). O género verdadeiro fica na tag.</li>
-  <li><b>BPM:</b> <code>Sem Genero</code> e <code>Outros</code> ficam divididos em pastas de BPM.</li>
-  <li><b>Tags:</b> o género da pasta é gravado na tag Genre; nomes de sites de download saem do Álbum, Título, etc.
-      O site também sai do <b>nome das faixas novas</b> (ex.: <code>- www.djsoundtop.com</code>). Nas faixas que já tens
-      só com a opção <i>Tirar sites do nome das faixas que já tens</i>, que pergunta antes: o rekordbox deixa de as
-      encontrar e tens de as importar outra vez.</li>
-  <li><b>Nomes</b> (opção, desligada por defeito): as faixas novas ficam com o nome
-      <code>Artista - Título (Extended Mix)</code>: artista e título vêm das tags; a versão vem do título
-      e, se lá não estiver, do nome antigo do ficheiro. As faixas dos packs e as que puseres
-      na pasta <code>_entrada</code> são renomeadas sem perguntar. Outras faixas que a app nunca viu (por exemplo
-      soltas na raiz) só depois de confirmares; na primeira vez que organizas uma biblioteca, só a <code>_entrada</code>
-      conta. Organiza antes de importar as faixas novas no rekordbox. As que já tinhas mantêm o nome, para o rekordbox
-      não as perder. Se faltar artista ou título nas tags, ou o nome já existir na pasta, fica o nome original.</li>
-  <li><b>Pastas protegidas</b> (em Biblioteca): a app nunca mexe nelas — não move, não renomeia, não muda tags
-      nem remove repetidas lá dentro. Boa para edits teus ou pastas já preparadas.</li>
-  <li><b>Só faixas novas</b> (opção): só mexe na <code>_entrada</code> e nas faixas que a app ainda não conhecia.
-      É mais rápido e o resto da biblioteca fica como está. As repetidas procuram-se na biblioteca toda, mas só
-      saem cópias novas.</li>
+  <li><b>Género:</b> cada faixa vai para a pasta do seu género (ex.: <code>House\\Tech House</code>). Se a faixa não
+      disser o género, usa o nome do pack; se não houver nada, vai para <code>Sem Genero</code>, separada por BPM.</li>
+  <li><b>Repetidas:</b> se tens a mesma faixa duas vezes, fica a melhor (a Extended, senão a mais longa). A outra vai
+      para a <b>quarentena</b>: uma pasta escondida onde fica 30 dias, para a poderes recuperar.</li>
+  <li><b>Outros:</b> géneros com poucas faixas (Pop, Rock…) ficam juntos na pasta <code>Outros</code>.</li>
+  <li><b>Tags:</b> grava o género dentro da faixa e tira nomes de sites (ex.: <code>www.djsoundtop.com</code>) do
+      título, álbum e comentários.</li>
 </ul>
-<h3>Ver tudo antes de organizar</h3>
-<p>Depois de <b>Pré-visualizar</b> aparece <b>Ver lista</b>: cada faixa que vai mudar (para onde vai, o nome novo,
-   o género, que repetida sai e qual fica). Podes procurar e <b>desmarcar</b> faixas; as desmarcadas ficam exatamente
-   como estão nessa organização. <b>Organizar com as marcadas</b> começa logo.</p>
-<h3>Relatório</h3>
-<p><b>Relatório</b> analisa a biblioteca sem mexer em nada e guarda uma lista (abre no Excel) das faixas sem
-   artista ou título, sem género, MP3 abaixo de 320 kbps, com menos de 1 minuto ou com tags estragadas.</p>
-<h3>Faixas conhecidas</h3>
-<p>A app lembra-se das faixas que já viu, para saber quais são novas. Na primeira organização com a versão 1.5.0
-   lê um pedaço de cada faixa para a reconhecer depois, mesmo que a mudes de pasta à mão. Numa biblioteca grande
-   isto demora uns minutos a mais, uma só vez (passo <i>A registar as faixas conhecidas</i>).</p>
+<h3>Nomes das faixas</h3>
+<ul>
+  <li>Nas <b>faixas novas</b> o site sai também do nome do ficheiro. Com a opção <i>Pôr nomes Artista - Título</i>,
+      ficam por exemplo <code>Fisher - Losing It (Extended Mix)</code>.</li>
+  <li>As faixas dos packs mudam de nome logo. Outras faixas novas (que puseste soltas na pasta) só depois de
+      confirmares, porque podem já estar no rekordbox.</li>
+  <li>As <b>faixas que já tinhas</b> nunca mudam de nome, a não ser que ligues <i>Tirar sites do nome das faixas
+      antigas</i>. Nesse caso a app pergunta antes; depois tens de as importar outra vez no rekordbox (perdes os
+      cues dessas faixas).</li>
+  <li>Dica: organiza <b>antes</b> de importares as faixas novas no rekordbox.</li>
+</ul>
+<h3>Opções úteis</h3>
+<ul>
+  <li><b>Pastas protegidas</b> (em Biblioteca): pastas em que a app nunca toca, por exemplo os teus edits.</li>
+  <li><b>Só faixas novas:</b> mais rápido. Arruma só o que chegou desde a última vez (packs e faixas novas, em
+      qualquer pasta). As faixas que já tinhas não são tocadas. De vez em quando organiza sem esta opção, para
+      arrumar tudo.</li>
+  <li><b>Relatório:</b> mostra as faixas com problemas, sem mexer em nada: sem artista ou título, sem género, MP3 de
+      menor qualidade ou muito curtas. Abre no Excel.</li>
+</ul>
 <h3>Enganei-me, e agora?</h3>
-<p><b>Desfazer…</b> mostra as últimas execuções. Escolhes até onde voltar; as mais recentes do que essa também são
-   desfeitas, da mais nova para a mais antiga. Cada execução desfeita devolve os ficheiros ao sítio onde estavam, tira da quarentena
-   as repetidas e o lixo removidos, repõe as tags originais (género, álbum, título…) e põe de lado o que foi
-   extraído dos packs (os packs ficam). O que não conseguir repor (apagado, mudado à mão, nome já ocupado) é
-   listado no fim. Se algum ficheiro estiver aberto noutro programa, fecha-o e carrega outra vez.<br>
-   <b>Esvaziar quarentena</b> envia já para a Reciclagem o que está em quarentena — a partir daí o Desfazer
-   já não recupera esses ficheiros.</p>
-<h3>Onde ficam os dados</h3>
-<p class="muted">Definições e chaves: <code>%APPDATA%\\GrooveWizard\\config.json</code> (só neste PC).<br>
-   Caches e registos: <code>%APPDATA%\\GrooveWizard\\bibliotecas</code> — fora da pasta das músicas,
-   para não aparecerem se a partilhares no Soulseek / Nicotine+.</p>
+<p><b>Desfazer…</b> mostra as últimas organizações. Escolhe até onde queres voltar: as faixas regressam ao sítio onde
+   estavam, as repetidas saem da quarentena e as tags voltam ao que eram. Se algum ficheiro estiver aberto noutro
+   programa, fecha-o e carrega outra vez.<br>
+   <b>Esvaziar quarentena</b> manda já para a Reciclagem o que está na quarentena. A partir daí o Desfazer já não
+   recupera essas faixas.</p>
+<h3>Bom saber</h3>
+<ul>
+  <li>A app lembra-se das faixas que já viu, para saber quais são novas. Na primeira organização com a versão 1.5
+      lê um pedaço de cada faixa; numa biblioteca grande demora uns minutos a mais, só dessa vez.</li>
+  <li>As definições e chaves ficam em <code>%APPDATA%\\GrooveWizard</code>, fora da pasta das músicas (não aparecem
+      se a partilhares no Soulseek / Nicotine+).</li>
+</ul>
 <h3>Problemas comuns</h3>
 <ul>
-  <li><b>.rar não extrai:</b> instala o <a href="https://7-zip.org">7-Zip</a>.</li>
-  <li><b>Muitas faixas em "Sem Genero":</b> confirma as chaves; liga o MusicBrainz (mais lento).</li>
-  <li><b>Faixas com "!" no rekordbox:</b> é normal depois de organizar — faz o Auto Relocate.</li>
+  <li><b>Os .rar não descompactam:</b> instala o <a href="https://7-zip.org">7-Zip</a>.</li>
+  <li><b>Muitas faixas em "Sem Genero":</b> confirma as chaves (botão Verificar) e liga o MusicBrainz.</li>
+  <li><b>Faixas com "!" no rekordbox:</b> é normal depois de organizar. Faz o Auto Relocate.</li>
 </ul>
 """,
     "en": """
 <h2>How to use</h2>
 <ol>
-  <li><b>Close rekordbox / Serato.</b> The app moves files and they must not be open.</li>
-  <li><b>Library:</b> choose the folder with your music (e.g. <code>D:\\Music</code>).
-      Downloaded <code>.zip</code>/<code>.rar</code> packs can stay inside it.</li>
-  <li><b>Online sources</b> (optional, recommended): paste your free Discogs and Last.fm keys.
-      They are used to find the genre of tracks that have none.</li>
-  <li><b>Steps:</b> turn on or off what you want the app to do.</li>
-  <li><b>Preview</b> shows what would change, <b>without touching anything</b>.</li>
+  <li><b>Close rekordbox / Serato.</b> The app works on the files and they can't be open.</li>
+  <li><b>Library:</b> choose the folder with your music (e.g. <code>D:\\Music</code>). The packs you download
+      (.zip, .rar) can stay in there: the app unpacks them.</li>
+  <li><b>Online sources</b> (optional): paste your free Discogs and Last.fm keys. They help find the genre of tracks
+      that don't have one.</li>
+  <li><b>Steps:</b> turn on only what you want the app to do.</li>
+  <li><b>Preview</b> shows what will change, <b>without touching anything</b>. Then <b>See list</b> shows every
+      track: you can untick the ones you don't want touched.</li>
   <li><b>Organize</b> makes the changes. You can <b>Cancel</b> halfway: what's done stays done.</li>
-  <li>Afterwards, in <b>rekordbox</b>: <i>File › Manage Missing Files › Auto Relocate</i> (pick the folder),
-      then in the Collection <i>Ctrl+A › right-click › Reload Tag</i>.</li>
+  <li>Afterwards, in <b>rekordbox</b>: <i>File › Manage Missing Files › Auto Relocate</i> (pick the folder), then in
+      the Collection <i>Ctrl+A › right-click › Reload Tag</i>.</li>
 </ol>
 <h3>Getting the keys (free, 2 minutes)</h3>
 <p><b>Discogs:</b> go to <a href="https://www.discogs.com/settings/developers">discogs.com/settings/developers</a>
    and click <i>Generate new token</i>.<br>
-   <b>Last.fm:</b> at <a href="https://www.last.fm/api/account/create">last.fm/api/account/create</a> fill in a
-   name and description; copy the <i>API key</i> (you don't need the <i>shared secret</i>).</p>
-<h3>What happens to your tracks</h3>
+   <b>Last.fm:</b> at <a href="https://www.last.fm/api/account/create">last.fm/api/account/create</a> fill in a name
+   and description and copy the <i>API key</i>.</p>
+<h3>What the app does to your tracks</h3>
 <ul>
-  <li><b>Genres:</b> each track goes to its genre folder (e.g. <code>House\\Tech House</code>).
-      Untagged: by pack name; otherwise it goes to <code>No Genre</code>.</li>
-  <li><b>Duplicates:</b> the <b>Extended Mix</b> is kept; otherwise the longest; then lossless.
-      The others go to <b>quarantine</b> (hidden <code>_quarentena</code> folder), kept 30 days before going to the Recycle Bin.</li>
-  <li><b>Other:</b> genres with few tracks (Pop, Hardstyle, Rock…). The real genre stays in the tag.</li>
-  <li><b>BPM:</b> <code>No Genre</code> and <code>Other</code> are split into BPM folders.</li>
-  <li><b>Tags:</b> the folder's genre is written to the Genre tag; download-site names are removed from Album, Title, etc.
-      The site also comes out of <b>new tracks' file names</b> (e.g. <code>- www.djsoundtop.com</code>). For tracks you
-      already have, only with the option <i>Remove sites from your existing tracks' names</i>, which asks first:
-      rekordbox no longer finds them and you have to import them again.</li>
-  <li><b>Names</b> (option, off by default): new tracks are named
-      <code>Artist - Title (Extended Mix)</code>: artist and title come from the tags; the version from the title,
-      or else from the old file name. Tracks from packs or put in the
-      <code>_entrada</code> folder are renamed without asking. Other tracks the app has never seen (e.g. loose in the
-      root) only after you confirm; the first time you organize a library, only <code>_entrada</code> counts.
-      Organize before importing new tracks into rekordbox. Tracks you already had keep their name, so rekordbox
-      doesn't lose them. Without artist or title in the tags, or if the name is taken in the folder, the original name stays.</li>
-  <li><b>Protected folders</b> (under Library): the app never touches them — no moving, renaming, tag changes or
-      duplicate removal inside. Good for your own edits or folders you already prepared.</li>
-  <li><b>Only new tracks</b> (option): only touches <code>_entrada</code> and tracks the app has not seen before.
-      Faster, and the rest of the library stays as it is. Duplicates are looked for in the whole library, but only
-      new copies are removed.</li>
+  <li><b>Genre:</b> each track goes to the folder of its genre (e.g. <code>House\\Tech House</code>). If the track has
+      no genre, the pack name is used; with nothing at all it goes to <code>No Genre</code>, split by BPM.</li>
+  <li><b>Duplicates:</b> if you have the same track twice, the best one stays (the Extended, else the longest). The
+      other goes to <b>quarantine</b>: a hidden folder where it's kept 30 days so you can get it back.</li>
+  <li><b>Other:</b> genres with few tracks (Pop, Rock…) go together in the <code>Other</code> folder.</li>
+  <li><b>Tags:</b> saves the genre inside the track and removes website names (e.g. <code>www.djsoundtop.com</code>)
+      from the title, album and comments.</li>
 </ul>
-<h3>See everything before organizing</h3>
-<p>After <b>Preview</b>, <b>See list</b> shows every track that will change (where it goes, its new name, the genre,
-   which duplicate goes and which stays). You can search and <b>untick</b> tracks; unticked tracks stay exactly as they
-   are in that run. <b>Organize with the ticked ones</b> starts right away.</p>
-<h3>Report</h3>
-<p><b>Report</b> looks at the library without changing anything and saves a list (opens in Excel) of tracks without
-   artist or title, without genre, MP3 under 320 kbps, shorter than 1 minute or with damaged tags.</p>
-<h3>Known tracks</h3>
-<p>The app remembers the tracks it has seen, to tell which ones are new. The first time you organize with version 1.5.0
-   it reads a piece of every track so it can recognise it later, even if you move it by hand. In a big library this
-   takes a few extra minutes, only once (step <i>Recording known tracks</i>).</p>
+<h3>Track names</h3>
+<ul>
+  <li>For <b>new tracks</b> the site also comes out of the file name. With the option <i>Name new tracks Artist -
+      Title</i> they become, for example, <code>Fisher - Losing It (Extended Mix)</code>.</li>
+  <li>Tracks from packs are renamed right away. Other new tracks (that you dropped in the folder) only after you
+      confirm, because they may already be in rekordbox.</li>
+  <li><b>Tracks you already had</b> never change name, unless you turn on <i>Remove sites from old tracks' names</i>.
+      Then the app asks first; afterwards you have to import them again in rekordbox (their cues are lost).</li>
+  <li>Tip: organize <b>before</b> importing new tracks into rekordbox.</li>
+</ul>
+<h3>Useful options</h3>
+<ul>
+  <li><b>Protected folders</b> (under Library): folders the app never touches, for example your own edits.</li>
+  <li><b>Only new tracks:</b> faster. Only sorts what arrived since last time (packs and new tracks, in any folder).
+      Tracks you already had are left alone. Now and then organize without this option to tidy everything.</li>
+  <li><b>Report:</b> shows tracks with problems, without changing anything: no artist or title, no genre,
+      lower-quality MP3 or very short. Opens in Excel.</li>
+</ul>
 <h3>Made a mistake?</h3>
-<p><b>Undo…</b> lists the recent runs. Choose how far back to go; runs newer than that one are undone too, newest
-   first. Each undone run puts files back where they were, takes removed duplicates and junk out of
-   quarantine, the original tags (genre, album, title…) are restored and what was extracted from packs is put aside
-   (the packs stay). Anything it cannot restore (deleted, changed by hand, name taken) is listed at the end.
-   If a file is open in another program, close it and press Undo again.<br>
-   <b>Empty quarantine</b> sends what is in quarantine to the Recycle Bin now — after that, Undo can no
-   longer bring those files back.</p>
-<h3>Where data is kept</h3>
-<p class="muted">Settings and keys: <code>%APPDATA%\\GrooveWizard\\config.json</code> (this PC only).<br>
-   Caches and logs: <code>%APPDATA%\\GrooveWizard\\bibliotecas</code> — outside your music folder,
-   so they don't show up if you share it on Soulseek / Nicotine+.</p>
+<p><b>Undo…</b> lists your recent organizes. Choose how far back to go: tracks return to where they were, duplicates
+   come out of quarantine and tags go back to what they were. If a file is open in another program, close it and
+   press Undo again.<br>
+   <b>Empty quarantine</b> sends what's in quarantine to the Recycle Bin now. After that, Undo can't bring those
+   tracks back.</p>
+<h3>Good to know</h3>
+<ul>
+  <li>The app remembers the tracks it has seen, to tell which ones are new. The first time you organize with version
+      1.5 it reads a piece of every track; in a big library that takes a few extra minutes, only that once.</li>
+  <li>Settings and keys are kept in <code>%APPDATA%\\GrooveWizard</code>, outside your music folder (they don't show
+      up if you share it on Soulseek / Nicotine+).</li>
+</ul>
 <h3>Common problems</h3>
 <ul>
-  <li><b>.rar won't extract:</b> install <a href="https://7-zip.org">7-Zip</a>.</li>
-  <li><b>Many tracks in "No Genre":</b> check your keys; turn on MusicBrainz (slower).</li>
-  <li><b>Tracks with "!" in rekordbox:</b> normal after organizing — run Auto Relocate.</li>
+  <li><b>.rar files don't unpack:</b> install <a href="https://7-zip.org">7-Zip</a>.</li>
+  <li><b>Many tracks in "No Genre":</b> check your keys (Check button) and turn on MusicBrainz.</li>
+  <li><b>Tracks with "!" in rekordbox:</b> normal after organizing. Run Auto Relocate.</li>
 </ul>
 """,
 }
