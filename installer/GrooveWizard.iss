@@ -1,7 +1,7 @@
 ; Instalador Windows (Inno Setup 6). Gerado por build.ps1 depois do PyInstaller.
 #define AppName "GrooveWizard"
 #ifndef AppVersion
-  #define AppVersion "1.6.0"
+  #define AppVersion "1.6.1"
 #endif
 
 [Setup]
@@ -22,6 +22,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=..\organizador\recursos\groovewizard.ico
+; Windows volta a ler os icones no fim (senao o atalho fica com o antigo em cache)
+ChangesAssociations=yes
 UninstallDisplayIcon={app}\GrooveWizard.exe
 ShowLanguageDialog=yes
 

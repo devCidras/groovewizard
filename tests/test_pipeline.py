@@ -647,6 +647,33 @@ def test_covers():
         pl.Discogs, pl.Deezer = real
 
 
+def test_review_fixes():
+    from organizador import bpm
+    from organizador.tags import artist_title, artists_key, clean_sites
+    assert strip_sites("!!!") == "!!!" and strip_sites("...") == "..."  # no site: never emptied
+    root = os.path.join(TMP, "revisao")
+    band = make(os.path.join(root, "Techno", "Techno", "x.wav"), 1, "!!!", "...", "Techno")
+    assert clean_sites(band, write=False) == 0
+    bare = {"artist": "", "title": ""}
+    assert artist_title("808 State - Pacific.wav", bare) == ("808 State", "Pacific")
+    assert artist_title("01. Fisher - Losing It.wav", bare) == ("Fisher", "Losing It")
+    assert artists_key("Mr. X") != artists_key("Mr") and artists_key("A x B") == artists_key("B, A")
+    assert bpm.fold(float("nan")) is None and bpm.fold(float("inf")) is None
+    # half a pack left by a crash is never sorted; a '_' root folder is left alone; a pack dropped in _entrada stays
+    make(os.path.join(root, pl.INBOX, "P" + pl.STAGING, "half.wav"), 2, "H", "Half", "House")
+    make(os.path.join(root, "_Backup", "mine.wav"), 3, "M", "Mine", "House")
+    src = make(os.path.join(TMP, "revisao-src", "t.wav"), 4, "T", "Track", "House")
+    for d in (os.path.join(root, "_Backup"), os.path.join(root, pl.INBOX)):
+        with zipfile.ZipFile(os.path.join(d, "pack.zip"), "w") as z:
+            z.write(src, "t.wav")
+    rep, errs = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+    assert not errs and rep["archives_extracted"] == 1, (rep, errs)
+    assert os.path.exists(os.path.join(root, "House", "House", "t.wav"))
+    assert not os.path.exists(os.path.join(root, "House", "House", "half.wav"))
+    assert os.path.exists(os.path.join(root, "_Backup", "mine.wav")) and os.path.exists(os.path.join(root, "_Backup", "pack.zip"))
+    assert os.path.exists(os.path.join(root, pl.INBOX, "pack.zip"))
+
+
 def test_unticked_on_first_run_stay_known():
     root = os.path.join(TMP, "untick1")
     old = make(os.path.join(root, "Misc", "A - One.wav"), 9, "A", "One", "House")  # unique length: known by path only
@@ -677,6 +704,7 @@ if __name__ == "__main__":
         test_unticked_on_first_run_stay_known()
         test_same_size_new_track()
         test_covers()
+        test_review_fixes()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)
