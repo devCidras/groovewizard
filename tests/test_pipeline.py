@@ -327,8 +327,9 @@ def test_versions_option():
 def test_protected_and_skip():
     root = os.path.join(TMP, "prot")
     mine = os.path.join(root, "Os Meus Edits")
-    edit = make(os.path.join(mine, "A - Song (Original Mix).wav"), 1, "A", "Song (Original Mix)", "Tech House")
-    spam = make(os.path.join(mine, "B - X.wav"), 1, "B", "X", "https://site.com")
+    # lengths no other test file has: the inventory must know them by path, not by a size match
+    edit = make(os.path.join(mine, "A - Song (Original Mix).wav"), 7, "A", "Song (Original Mix)", "Tech House")
+    spam = make(os.path.join(mine, "B - X.wav"), 8, "B", "X", "https://site.com")
     make(os.path.join(root, "A - Song (Extended Mix).wav"), 2, "A", "Song (Extended Mix)", "Tech House")
     untick = make(os.path.join(root, "C - Y.wav"), 1, "C", "Y", "Techno")
     opts = pl.Options(root=root, online=False, bpm_folders=False,
@@ -360,6 +361,10 @@ def test_protected_and_skip():
     assert os.path.exists(os.path.join(house, "Tech House", "A - Song (Extended Mix).wav"))
     a = pl.Organizer(opts).run_id
     assert a < pl.Organizer(opts).run_id  # run ids sort in time order
+    # protected tracks are known: unprotected later, 'Only new tracks' still leaves them alone
+    opts.protected, opts.only_new = [], True
+    rep, errs = pl.Organizer(opts).run()
+    assert os.path.exists(edit) and os.path.exists(spam), "unprotected old tracks were treated as new"
 
 
 def test_only_new():

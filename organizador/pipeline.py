@@ -364,13 +364,28 @@ class Organizer:
                 pass
         return out
 
+    def _protected_identities(self):
+        """Tracks in protected folders are the user's, not new: known, so removing the protection later never makes
+        'Only new tracks' or the rename question treat them as new."""
+        out = []
+        for d in self._protected:
+            for dp, _, fs in os.walk(d):
+                for n in fs:
+                    if is_audio(n):
+                        p = os.path.join(dp, n)
+                        try:
+                            out.append((self._rel(p), os.path.getsize(p)))
+                        except OSError:
+                            pass
+        return out
+
     def save_inventory(self):
         """Runs at the end of every run, finished or not. The list only grows: every track in the library becomes
         known, except never-seen ones still waiting for an answer or whose rename failed (asked again next time).
         Growing only means Undo, cancel or a half-done Undo can never make an old track look new."""
         paths, sizes = self.known if self.known is not None else (set(), set())
         paths, sizes = set(paths), set(sizes)
-        for rel, size in self._start + self._settled + self._identities(end=True):
+        for rel, size in self._start + self._settled + self._identities(end=True) + self._protected_identities():
             paths.add(rel)
             sizes.add(size)
         _write_json(self._inventory_path, {"paths": sorted(paths), "sizes": sorted(sizes)})
@@ -1082,11 +1097,11 @@ def list_runs(root):
     for f in reversed(_pending_logs(d)):
         kinds = Counter()
         try:
-            with open(os.path.join(d, f), encoding="utf-8", newline="") as fh:
-                for r in csv.reader(fh):
-                    if r:
-                        kinds[r[0]] += 1
-        except (OSError, UnicodeDecodeError, csv.Error):
+            # only the first field (a plain word): no CSV parsing of the long tag snapshots, a 16k-track log stays fast
+            with open(os.path.join(d, f), "rb") as fh:
+                for line in fh:
+                    kinds[line.split(b",", 1)[0].decode("ascii", "replace").strip()] += 1
+        except OSError:
             continue
         out.append((f[:-4], kinds))
     return out

@@ -822,7 +822,8 @@ class Window(QMainWindow):
             self.log.appendPlainText(t("log.preview_limits"))
             self._plan = self.worker.plan
             if self._plan:
-                self.btn_plan.setText(t("btn.plan", n=f"{len(self._plan):,}".replace(",", " ")))
+                tracks = len({p for _, p, _ in self._plan})  # same count as the list window (tracks, not rows)
+                self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
                 self.btn_plan.show()
         if kind == "report" and self.worker.report_path:
             path = self.worker.report_path
