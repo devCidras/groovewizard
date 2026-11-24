@@ -52,6 +52,8 @@ HELP = {
   <li><b>Outros:</b> géneros com poucas faixas (Pop, Rock…) ficam juntos na pasta <code>Outros</code>.</li>
   <li><b>Tags:</b> grava o género dentro da faixa e tira nomes de sites (ex.: <code>www.djsoundtop.com</code>) do
       título, álbum e comentários.</li>
+  <li><b>Capas</b> (opção <i>Pôr capas</i>): as faixas sem capa recebem a capa do lançamento (Deezer e, com a chave,
+      Discogs). Uma capa que já exista nunca é trocada. No rekordbox, faz <i>Recarregar tag</i> para a ver.</li>
 </ul>
 <h3>Nomes das faixas</h3>
 <ul>
@@ -78,6 +80,7 @@ HELP = {
 <p><b>Desfazer…</b> mostra as últimas organizações. Escolhe até onde queres voltar: as faixas regressam ao sítio onde
    estavam, as repetidas saem da quarentena e as tags voltam ao que eram. Se algum ficheiro estiver aberto noutro
    programa, fecha-o e carrega outra vez.<br>
+   <b>Ver quarentena</b> abre a pasta (escondida) onde estão as faixas removidas, para veres ou copiares alguma de volta.<br>
    <b>Esvaziar quarentena</b> manda já para a Reciclagem o que está na quarentena. A partir daí o Desfazer já não
    recupera essas faixas.</p>
 <h3>Bom saber</h3>
@@ -123,6 +126,8 @@ HELP = {
   <li><b>Other:</b> genres with few tracks (Pop, Rock…) go together in the <code>Other</code> folder.</li>
   <li><b>Tags:</b> saves the genre inside the track and removes website names (e.g. <code>www.djsoundtop.com</code>)
       from the title, album and comments.</li>
+  <li><b>Cover art</b> (option <i>Add cover art</i>): tracks without a cover get the release's cover (Deezer and, with
+      the key, Discogs). An existing cover is never replaced. In rekordbox, use <i>Reload Tag</i> to see it.</li>
 </ul>
 <h3>Track names</h3>
 <ul>
@@ -148,6 +153,7 @@ HELP = {
 <p><b>Undo…</b> lists your recent organizes. Choose how far back to go: tracks return to where they were, duplicates
    come out of quarantine and tags go back to what they were. If a file is open in another program, close it and
    press Undo again.<br>
+   <b>Open quarantine</b> opens the (hidden) folder with the removed tracks, to look at them or copy one back.<br>
    <b>Empty quarantine</b> sends what's in quarantine to the Recycle Bin now. After that, Undo can't bring those
    tracks back.</p>
 <h3>Good to know</h3>

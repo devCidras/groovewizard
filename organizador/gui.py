@@ -19,7 +19,7 @@ from .theme import C, QSS
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
-         ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"])]
+         ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"]), ("covers", ["covers"])]
 EXTRA_OPTIONS = ["only_new", "merge_versions", "clean_sites", "families", "rename_packs", "site_names", "musicbrainz",
                  "delete_archives"]
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-icone.png")  # symbol without tile: reads bigger
@@ -408,6 +408,9 @@ class Window(QMainWindow):
         lay.addLayout(btns)
         self.btn_purge = QPushButton(t("btn.purge"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.purge_tip"))
         self.btn_purge.clicked.connect(self.purge)
+        self.btn_quarantine = QPushButton(t("btn.quarantine"), objectName="ghost", cursor=Qt.PointingHandCursor,
+                                          toolTip=t("btn.quarantine_tip"))
+        self.btn_quarantine.clicked.connect(self.open_quarantine)
         self.btn_plan = QPushButton(objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.plan_tip"))
         self.btn_plan.clicked.connect(self.show_plan)
         self.btn_plan.hide()  # only after a Preview found something
@@ -418,6 +421,7 @@ class Window(QMainWindow):
         extra.addWidget(self.btn_plan)
         extra.addStretch()
         extra.addWidget(self.btn_report)
+        extra.addWidget(self.btn_quarantine)
         extra.addWidget(self.btn_purge)
         extra.addWidget(self.btn_undo)
         lay.addLayout(extra)
@@ -633,7 +637,7 @@ class Window(QMainWindow):
         return opts, keys
 
     def busy(self, on):
-        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_report, self.btn_plan,
+        for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_quarantine, self.btn_report, self.btn_plan,
                   self.protected, self.protect_add, self.protect_del, self.folder, self.lang_combo, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
@@ -697,6 +701,16 @@ class Window(QMainWindow):
                 self.thread.finished.connect(self.close)
             return
         event.accept()
+
+    def open_quarantine(self):
+        """The quarantine is a hidden folder: opened here so nobody has to turn on hidden items in Explorer."""
+        from .pipeline import QUARANTINE
+        root = self.folder.text().strip()
+        q = os.path.join(root, QUARANTINE)
+        if root and os.path.isdir(q) and any(n != ".quarentena-da-app" for n in os.listdir(q)):
+            os.startfile(q)
+        else:
+            QMessageBox.information(self, t("btn.quarantine"), t("msg.quarantine_empty"))
 
     def purge(self):
         opts, keys = self.current()

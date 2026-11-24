@@ -133,7 +133,7 @@ def run_date(run_id):
 
 
 def run_summary(kinds):
-    parts = [t("hist." + k, n=kinds[k]) for k in ("mover", "quarentena", "tags", "extraido") if kinds.get(k)]
+    parts = [t("hist." + k, n=kinds[k]) for k in ("mover", "quarentena", "tags", "capa", "extraido") if kinds.get(k)]
     return ", ".join(parts) or t("hist.nothing")
 
 

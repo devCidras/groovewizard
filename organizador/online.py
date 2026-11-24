@@ -118,6 +118,97 @@ class Discogs(Cached):
         return self.cache[k]
 
 
+    def cover(self, artist, title):
+        """URL of a cover for this track, '' if none: a release named after the track (its single) first, else any
+        release it is on. Cached, like the genre search."""
+        k = f"cover | {artist} | {title}".lower()
+        if k not in self.cache:
+            q = urllib.parse.urlencode({"type": "release", "artist": artist, "track": title, "per_page": 10})
+            r = self.fetch("https://api.discogs.com/database/search?" + q, self.h)
+            if r is None:
+                return ""  # failed: not cached, tried again next run
+            nt = norm(title)
+            # 'Artist - Release': only releases by this artist (a Various Artists compilation cover is not the track's)
+            ok = [x for x in r.get("results", []) if " - " in x.get("title", "")
+                  and _same_artist(artist, x["title"].split(" - ", 1)[0])]
+            ok.sort(key=lambda x: nt not in norm(x.get("title", "")))  # its own single first (stable)
+            self.cache[k] = next((x["cover_image"] for x in ok
+                                  if x.get("cover_image") and "spacer.gif" not in x["cover_image"]), "")
+        return self.cache[k]
+
+    def image(self, url, folder):
+        """The image's bytes (kept in `folder`, so tracks of the same release download it once), or None."""
+        import hashlib
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, hashlib.sha1(url.encode()).hexdigest()[:20])
+        from .tags import image_type
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+            if image_type(data):  # checked again: a damaged cache file is fetched anew
+                return data
+        except OSError:
+            pass
+        if self.cancel.wait(max(0.0, self.interval - (time.time() - self.last))):
+            return None
+        self.last = time.time()
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=30) as r:
+                data = r.read(5 * 1024 * 1024 + 1)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return None
+        if len(data) > 5 * 1024 * 1024 or not image_type(data):  # only real JPEG/PNG, never huge files
+            return None
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+        return data
+
+
+def _same_artist(ours, theirs):
+    """Same name ('Fisher' = 'FISHER'), or one of the names of a collaboration ('Marten Hørger & James Carter',
+    'A, B', 'A feat. B', 'A x B'). Never part of a name: 'Fisher' is not 'Fisher Price'."""
+    import re
+    joins = r"\s*(?:,|&|\+|\b(?:featuring|feat|ft|vs|x|and|with)\b\.?)\s*"  # whole words only: 'FTampa' stays
+    split = lambda s: {norm(x) for x in re.split(joins, s, flags=re.I)}
+    a = norm(ours)
+    return bool(a) and (a == norm(theirs) or a in split(theirs) or norm(theirs) in split(ours))
+
+
+def _base_title(t):
+    """The song without anything in brackets: 'Losing It (Extended Mix)' -> 'losing it'."""
+    import re
+    return norm(re.sub(r"[\(\[][^\)\]]*[\)\]]?", " ", t))
+
+
+class Deezer(Cached):
+    """Cover art without a key (good for new electronic releases). 500x500: enough for rekordbox, small in the file."""
+
+    def __init__(self, data_dir, cancel=None):
+        super().__init__(os.path.join(data_dir, "cache_deezer.json"), 0.15, cancel)  # limit: 50 requests / 5 s
+        self.h = {"User-Agent": UA}
+
+    def cover(self, artist, title):
+        """URL of the cover of the release this track is on, '' if no result matches artist and title."""
+        k = f"{artist} | {title}".lower()
+        if k not in self.cache:
+            base = _base_title(title)  # 'That Acid (X Extended Remix)' is listed as 'That Acid (X Remix)'
+            r = self.fetch("https://api.deezer.com/search?" + urllib.parse.urlencode({"q": f"{artist} {base}", "limit": 15}),
+                           self.h)
+            if r is None:
+                return ""
+            words = set(norm(title).split())
+            hits = [x for x in r.get("data", []) if _same_artist(artist, x.get("artist", {}).get("name", ""))
+                    and base and _base_title(x.get("title", "")) == base]
+            # same song: the version whose title shares most words with ours (the remix, not the original)
+            hit = max(hits, key=lambda x: len(words & set(norm(x.get("title", "")).split())), default=None)
+            self.cache[k] = (hit or {}).get("album", {}).get("cover_big", "") or ""
+        return self.cache[k]
+
+    image = Discogs.image  # same download + disk cache
+
+
 class LastFM(Cached):
     def __init__(self, data_dir, key, cancel=None):
         super().__init__(os.path.join(data_dir, "cache_lastfm.json"), 0.25, cancel)

@@ -25,11 +25,11 @@ from send2trash import send2trash
 
 from . import bpm as bpm_mod
 from .i18n import t
-from .online import Lookup
+from .online import Deezer, Discogs, Lookup
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
-                   normalize_genre, pack_file_name, raw_genre, read_info, restore, search_terms, clean_file_name, snapshot,
-                   track_key, version_label)
+                   normalize_genre, pack_file_name, raw_genre, read_info, remove_cover, restore, search_terms, clean_file_name,
+                   set_cover, snapshot, track_key, version_label, cover_digest)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
 for _old in ("Cratekeeper", "OrganizadorMusica"):  # names before v1.2 / v0.2
@@ -76,6 +76,7 @@ class Options:
     folder_lang: str = "pt"  # language of Sem Genero / Outros / BPM folder names, fixed on first use
     merge_versions: bool = True  # Radio Edit / Club Mix count as the same song as the Extended Mix
     rename_packs: bool = False  # new tracks (packs / _entrada) get 'Artist - Title (Mix)' names; never tracks elsewhere
+    covers: bool = False  # tracks without cover art get one from Discogs (needs the Discogs key)
     site_names: bool = False  # tracks you already had lose the download site from their file name (asked first)
     only_new: bool = False  # only _entrada and tracks never seen before; the rest of the library is left as it is
     protected: list = field(default_factory=list)  # folders (absolute paths) the app never reads, moves or edits
@@ -490,8 +491,8 @@ class Organizer:
                     pass  # moved during the run: its new place is in ids too
                 continue
             try:
-                if os.path.getsize(p) != size:  # changed or replaced during the run
-                    raise OSError
+                if os.path.getsize(p) != size:  # changed during the run (tags, cover): its new size is in ids too
+                    continue
                 fps.add(self._fingerprint(p))
                 cache[rel] = self._fp_cache[rel]
             except (OSError, KeyError):
@@ -934,6 +935,61 @@ class Organizer:
 
     # ---------- tags ----------
 
+    def step_covers(self):
+        """Tracks without cover art get the cover of a release they are on: Deezer first (no key), then Discogs (with
+        its key). Only a result whose artist and title match is used. Never replaces a cover."""
+        token = self.keys.get("discogs_token", "")
+        sources = [Deezer(self.data, self.cancel)] + ([Discogs(self.data, token, self.cancel)] if token else [])
+        files = [p for p in self.audio_files() if self._in_scope(p)]
+        infos = self._read_all(files, "covers")
+        todo = [p for p in files if not infos[p]["unreadable"] and not infos[p]["cover"]]
+        folder = os.path.join(self.data, "capas")
+        try:
+            for i, p in enumerate(todo, 1):
+                self._tick("covers", i, len(todo), os.path.basename(p))
+                terms = search_terms(p)
+                data = None
+                for src in sources if terms else []:
+                    url = src.cover(*terms)
+                    data = src.image(url, folder) if url else None
+                    if data:
+                        break
+                if not data:
+                    continue
+                try:
+                    if self._add_cover(p, data):
+                        self.report["covers_added"] += 1
+                except Exception as e:
+                    self.errors.append(f"{os.path.basename(p)}: {e}")
+                if i % 25 == 0:
+                    for src in sources:
+                        src.save()
+        finally:
+            for src in sources:
+                src.save()
+
+    def _add_cover(self, p, data):
+        """On a verified copy, like tags; logged first (with the image's digest) so Undo can take exactly this cover out
+        again. False when the track got a cover meanwhile (another program): it is never replaced."""
+        tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"
+        shutil.copy2(p, tmp)
+        try:
+            first = read_info(tmp)
+            if first["cover"]:
+                return False
+            before = first["duration"]
+            self._write_log("capa", p, cover_digest(data))
+            self._fp_cache.pop(self._rel(p), None)
+            set_cover(tmp, data)
+            check = read_info(tmp)
+            if check["unreadable"] or not check["cover"] or (before and abs(check["duration"] - before) > 0.5):
+                raise RuntimeError(t("err.tag_check"))
+            os.replace(tmp, p)
+            return True
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
     def step_tags(self):
         files = [p for p in self.audio_files() if self._in_scope(p)]
         for i, p in enumerate(files, 1):
@@ -987,7 +1043,7 @@ class Organizer:
     def _run(self):
         steps = [(self.opts.extract, self.step_extract), (True, self.step_organize), (self.opts.dedupe, self.step_dedupe),
                  (self.opts.online, self.step_online), (self.opts.bpm_folders, self.step_bpm),
-                 (self.opts.write_tags or self.opts.clean_sites, self.step_tags)]
+                 (self.opts.write_tags or self.opts.clean_sites, self.step_tags), (self.opts.covers, self.step_covers)]
         renames = self.opts.rename_packs or self.opts.clean_sites
         if renames and self.known is not None:  # never-seen at the start: stay new if we stop before the question
             self._pending = {os.path.normcase(p) for p in self.audio_files() if self.is_new(p)}
@@ -1088,6 +1144,9 @@ class Organizer:
             self.plan += [("dup", p, self.dup_best[p]) for p in dups]
         if self.opts.bpm_folders:
             rep["bpm_pending"] = len(self._loose_unsorted())
+        if self.opts.covers:
+            rep["covers_pending"] = sum(1 for p, i in infos.items() if self._in_scope(p) and not i["unreadable"]
+                                        and not i["cover"])
         if self.opts.online and os.path.isdir(self.target_dir(NO_GENRE)):
             rep["online_pending"] = sum(1 for p in self.audio_files(self.target_dir(NO_GENRE)) if self._in_scope(p))
         inbox = os.path.join(self.root, INBOX)
@@ -1202,6 +1261,25 @@ def _safe_restore(path, snap, run_id):
         if check["unreadable"] or (before and check["duration"] and abs(check["duration"] - before) > 0.5):
             raise RuntimeError(t("err.tag_check"))
         os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _safe_uncover(path, digest, run_id):
+    """Undo of a cover the app added (only that image: one the user added later stays), on a copy that must still play
+    before it replaces the track."""
+    before = read_info(path)["duration"]
+    tmp = f"{path}.ck-undo-{run_id}{os.path.splitext(path)[1]}"
+    shutil.copy2(path, tmp)
+    try:
+        if not remove_cover(tmp, digest):
+            return False  # not there any more (replaced by hand): nothing of ours to take out
+        check = read_info(tmp)
+        if check["unreadable"] or (before and check["duration"] and abs(check["duration"] - before) > 0.5):
+            raise RuntimeError(t("err.tag_check"))
+        os.replace(tmp, path)
+        return True
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -1339,7 +1417,7 @@ def _undo_last(root, progress, cancel, protected=()):
         done = set()
     rep, errors, retry = Counter(), [], [False]
     failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
-    kinds = ("tags", "quarentena", "mover", "extraido", "genero")
+    kinds = ("tags", "quarentena", "mover", "extraido", "genero", "capa")
     todo = [(i, r) for i, r in enumerate(rows) if r[0] in kinds and len(r) > 2 and (r[1], r[2]) not in failed
             and i not in done]
     overrides_path = os.path.join(data, "generos_corrigidos.json")
@@ -1351,7 +1429,7 @@ def _undo_last(root, progress, cancel, protected=()):
                 raise Cancelled()
             kind, a, b = r[:3]
             progress("undo", n, len(todo), os.path.basename(a))
-            touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind == "tags" else []
+            touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind in ("tags", "capa") else []
             if any(os.path.isabs(p) and inside(p) for p in touched):
                 errors.append(t("err.undo_protected", path=a))
                 retry[0] = True  # stays pending: undone later, when the folder is no longer protected
@@ -1366,6 +1444,17 @@ def _undo_last(root, progress, cancel, protected=()):
                         rep["undo_tags"] += 1
                         ok = True
                     except Exception as e:  # e.g. file open in another program: try again later
+                        errors.append(f"{a}: {e}")
+                        retry[0] = True
+            elif kind == "capa":  # the track had no cover before this run
+                if not os.path.exists(a):
+                    errors.append(t("err.undo_missing", path=a))
+                else:
+                    try:
+                        if _safe_uncover(a, b, run_id):
+                            rep["undo_covers"] += 1
+                        ok = True
+                    except Exception as e:
                         errors.append(f"{a}: {e}")
                         retry[0] = True
             elif kind == "genero":

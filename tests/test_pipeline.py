@@ -578,6 +578,75 @@ def test_same_size_new_track():
     assert not pl.Organizer(opts).is_new(back), "a known track became new after the migration"
 
 
+def test_covers():
+    """Tracks without cover art get one (Discogs faked: no network in tests); existing covers stay; Undo removes it."""
+    import struct
+    import zlib
+    from organizador.tags import read_info, set_cover
+
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00")) + chunk(b"IEND", b""))
+    asked = []
+    from organizador.online import _same_artist
+    for ours, theirs, same in (("Fisher", "FISHER", True), ("Fisher", "Fisher Price", False), ("B", "A Featuring B", True),
+                               ("Marten Hørger", "Marten Hørger & James Carter", True), ("Ampa", "FTampa", False)):
+        assert _same_artist(ours, theirs) == same, (ours, theirs)
+
+    class FakeDiscogs:
+        def __init__(self, data, token, cancel=None):
+            pass
+
+        def cover(self, artist, title):
+            asked.append((artist, title))
+            return "https://img/x.png"
+
+        def image(self, url, folder):
+            return png
+
+        def save(self):
+            pass
+
+    class FakeDeezer(FakeDiscogs):
+        def __init__(self, data, cancel=None):
+            pass
+
+        def cover(self, artist, title):
+            asked.append(("deezer", artist, title))
+            return ""  # not found there: Discogs is tried next
+
+    real = pl.Discogs, pl.Deezer
+    pl.Discogs, pl.Deezer = FakeDiscogs, FakeDeezer
+    try:
+        root = os.path.join(TMP, "capas")
+        bare = make(os.path.join(root, "Techno", "Techno", "A - Bare.wav"), 1, "A", "Bare", "Techno")
+        has = make(os.path.join(root, "Techno", "Techno", "B - Has.wav"), 2, "B", "Has", "Techno")
+        set_cover(has, png)
+        opts = pl.Options(root=root, online=False, bpm_folders=False, covers=True)
+        assert pl.Organizer(opts).preview()["covers_pending"] == 1
+        rep, errs = pl.Organizer(opts, keys={"discogs_token": "x"}).run()
+        assert not errs and rep["covers_added"] == 1, (rep, errs)
+        assert asked == [("deezer", "A", "Bare"), ("A", "Bare")], asked  # only the track without a cover; Deezer first
+        assert read_info(bare)["cover"] and read_info(has)["cover"]
+        rep, errs = pl.undo_last(root)
+        assert not errs and rep["undo_covers"] == 1 and not read_info(bare)["cover"] and read_info(has)["cover"]
+        rep, errs = pl.Organizer(opts).run()  # no Discogs key, Deezer finds nothing: no cover, no error
+        assert not errs and "covers_added" not in rep and not read_info(bare)["cover"]
+        # the user replaced our cover after the run: Undo leaves theirs alone
+        pl.Organizer(opts, keys={"discogs_token": "x"}).run()
+        from organizador.tags import remove_cover, cover_digest
+        assert remove_cover(bare, cover_digest(png))
+        mine = png[:-12] + b"\x00\x00\x00\x00tEXt" + png[-12:]  # another (still valid) image
+        set_cover(bare, mine)
+        rep, errs = pl.undo_last(root)
+        assert not errs and read_info(bare)["cover"], "Undo took out a cover the user added"
+        from organizador.tags import image_type
+        assert image_type(png) and not image_type(png[:-12]) and not image_type(b"\xff\xd8\xff\xe0" + b"x" * 50)
+    finally:
+        pl.Discogs, pl.Deezer = real
+
+
 def test_unticked_on_first_run_stay_known():
     root = os.path.join(TMP, "untick1")
     old = make(os.path.join(root, "Misc", "A - One.wav"), 9, "A", "One", "House")  # unique length: known by path only
@@ -607,6 +676,7 @@ if __name__ == "__main__":
         test_site_names()
         test_unticked_on_first_run_stay_known()
         test_same_size_new_track()
+        test_covers()
         print("ok")
     finally:
         shutil.rmtree(TMP, ignore_errors=True)

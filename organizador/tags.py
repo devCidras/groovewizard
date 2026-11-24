@@ -150,14 +150,117 @@ def _first(tags, key):
     return str(v[0]) if v else ""
 
 
+# ---------- cover art ----------
+
+def _has_cover(f):
+    if getattr(f, "pictures", None):  # FLAC
+        return True
+    tags = f.tags
+    if not tags:
+        return False
+    try:
+        return any(str(k).startswith(("APIC", "PIC")) for k in tags.keys()) or bool(tags.get("covr"))
+    except Exception:
+        return False
+
+
+MAX_COVER_SIDE = 3000  # px: bigger is a broken or absurd image, never written into a track
+
+
+def image_type(data):
+    """'image/jpeg' / 'image/png' when the bytes are a complete image of sane size, else None (anything else is never
+    written into a track)."""
+    import struct
+    if data[:3] == b"\xff\xd8\xff" and data.rstrip(b"\x00")[-2:] == b"\xff\xd9":  # starts and ends like a JPEG
+        i = 2
+        while i + 9 < len(data):  # find the frame header (SOFn) for its size
+            if data[i] != 0xFF:
+                return None
+            marker, length = data[i + 1], struct.unpack(">H", data[i + 2:i + 4])[0]
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                return "image/jpeg" if 0 < w <= MAX_COVER_SIDE and 0 < h <= MAX_COVER_SIDE else None
+            i += 2 + length
+        return None
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR" and data[-8:-4] == b"IEND":
+        w, h = struct.unpack(">II", data[16:24])
+        return "image/png" if 0 < w <= MAX_COVER_SIDE and 0 < h <= MAX_COVER_SIDE else None
+    return None
+
+
+def cover_digest(data):
+    """Short id of an image: Undo takes out only the cover the app put in, never one added later."""
+    import hashlib
+    return hashlib.sha1(data).hexdigest()[:16]
+
+
+def set_cover(path, data):
+    """Front cover into the file's tags (MP3/WAV/AIFF: ID3 APIC, FLAC: picture block, M4A: covr)."""
+    from mutagen.flac import Picture
+    from mutagen.id3 import APIC
+    from mutagen.mp4 import MP4Cover
+    mime = image_type(data)
+    if not mime:
+        raise ValueError("not a JPEG/PNG image")
+    f = mutagen.File(path)
+    if f is None:
+        raise ValueError("formato nao reconhecido")
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".flac":
+        pic = Picture()
+        pic.type, pic.mime, pic.desc, pic.data = 3, mime, "Cover", data
+        f.add_picture(pic)
+    else:
+        if f.tags is None:
+            f.add_tags()
+        if ext == ".m4a":
+            fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
+            f.tags["covr"] = [MP4Cover(data, imageformat=fmt)]
+        else:
+            f.tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
+    f.save()
+
+
+def remove_cover(path, digest):
+    """Undo of set_cover: takes out only the picture with this digest (the one the app added). Returns True if found."""
+    f = mutagen.File(path)
+    if f is None:
+        raise ValueError("formato nao reconhecido")
+    found = False
+    if getattr(f, "pictures", None):  # FLAC
+        keep = [p for p in f.pictures if cover_digest(p.data) != digest]
+        if len(keep) != len(f.pictures):
+            found = True
+            f.clear_pictures()
+            for p in keep:
+                f.add_picture(p)
+    if f.tags:
+        for k in list(f.tags.keys()):
+            if str(k).startswith(("APIC", "PIC")) and cover_digest(f.tags[k].data) == digest:
+                del f.tags[k]
+                found = True
+            elif k == "covr":
+                keep = [c for c in f.tags["covr"] if cover_digest(bytes(c)) != digest]
+                if len(keep) != len(f.tags["covr"]):
+                    found = True
+                    if keep:
+                        f.tags["covr"] = keep
+                    else:
+                        del f.tags["covr"]
+    if found:
+        f.save()
+    return found
+
+
 def read_info(path):
     """Everything the organizer needs from one file, with a single open: genre text, artist, title, duration."""
     f = _open(path)
-    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "bitrate": 0, "unreadable": f is None}
+    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "bitrate": 0, "cover": False, "unreadable": f is None}
     if not f:
         return info
     info["duration"] = f.info.length if f.info else 0.0
     info["bitrate"] = getattr(f.info, "bitrate", 0) or 0  # bits/s; 0 when the format doesn't say
+    info["cover"] = _has_cover(f)
     if not f.tags:
         return info
     ext = os.path.splitext(path)[1].lower()
