@@ -74,6 +74,7 @@ class PlanDialog(QDialog):
         close.clicked.connect(self.reject)
         run.clicked.connect(self.accept)
         run.setEnabled(bool(plan))
+        self.run_btn = run
         for w in (all_, none, self.count):
             row.addWidget(w)
         row.addStretch()
@@ -117,7 +118,10 @@ class PlanDialog(QDialog):
     def _update_count(self):
         """Counted in tracks, not rows."""
         off = set(self.skipped())
-        self.count.setText(t("plan.count", on=len(self.rows_of) - len(off), n=len(self.rows_of)))
+        on = len(self.rows_of) - len(off)
+        self.count.setText(t("plan.count", on=on, n=len(self.rows_of)))
+        if hasattr(self, "run_btn"):
+            self.run_btn.setEnabled(on > 0)
 
     def skipped(self):
         """Files with any row unticked: left exactly as they are in the run."""

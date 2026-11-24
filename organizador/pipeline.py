@@ -114,7 +114,7 @@ def _read_json(path, default):
     try:
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, ValueError):  # ValueError: bad JSON or bad bytes (UnicodeDecodeError)
         return default
 
 
@@ -171,6 +171,20 @@ def _content_fp(path, size):
     with open(path, "rb") as fh:
         fh.seek(max(0, size // 2 - 16384))
         return f"{size}:{hashlib.sha1(fh.read(32768)).hexdigest()[:20]}"
+
+
+STAGING = ".gw-parte"  # a pack being unpacked: renamed to its real name only once it is complete
+
+
+def _descend(dp, d, root):
+    """Folders the app walks into: not a junction / symlink (it could lead outside the library), not a pack still
+    being unpacked, and at the library's top level no '_' folder except _entrada."""
+    p = os.path.join(dp, d)
+    if os.path.islink(p) or getattr(os.path, "isjunction", lambda _: False)(p) or d.endswith(STAGING):
+        return False
+    if dp == root and d.startswith("_") and os.path.normcase(d) != os.path.normcase(INBOX):
+        return False
+    return d.lower() not in SKIP_DIRS
 
 
 def protectable(root, dirs):
@@ -298,13 +312,6 @@ class Organizer:
         full = os.path.join(dst_dir, name)
         u16 = lambda s: len(s.encode("utf-16-le")) // 2  # Windows limits count UTF-16 units (emoji = 2)
         return not os.path.exists(full) and u16(full) + 4 < 255 and u16(name) < 250
-
-    def new_name(self, p, info):
-        """Tracks in _entrada (extracted from packs or dropped there) are new: not in rekordbox/Serato yet, so they
-        are renamed without asking. Other tracks only through rename_plan() + the user's yes."""
-        if not (self.opts.rename_packs and self._in_inbox(p)) or info["unreadable"]:
-            return None
-        return pack_file_name(p, info)
 
     def _rel(self, p):
         return os.path.normcase(os.path.relpath(p, self.root))
@@ -518,8 +525,7 @@ class Organizer:
         (except _entrada)."""
         base = base or self.root
         for dp, dirs, files in os.walk(base):
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not self.left_alone(os.path.join(dp, d))
-                       and not (dp == self.root and d.startswith("_") and d != INBOX)]
+            dirs[:] = [d for d in dirs if _descend(dp, d, self.root) and not self.left_alone(os.path.join(dp, d))]
             yield dp, dirs, files
 
     def move(self, src, dst_dir, name=None):
@@ -588,12 +594,13 @@ class Organizer:
     def _edit_tags(self, p, genre=None, clean=False):
         """Original tags go to the run log first; the edit is made on a copy that must reopen with the same
         length before it replaces the original, so a failed save can never damage the track."""
-        self._write_log("tags", p, snapshot(p))
+        snap = snapshot(p)
+        self._write_log("tags", p, snap)
         self._fp_cache.pop(self._rel(p), None)  # content changes: never reuse its old fingerprint (coarse mtimes)
         before = read_info(p)["duration"]
         tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"  # same extension: mutagen picks the format by it
-        shutil.copy2(p, tmp)
         try:
+            shutil.copy2(p, tmp)
             changed = fix_tags(tmp, genre=genre, clean=clean)
             check = read_info(tmp)
             # length unknown before (some AIFF without tags report 0) only needs to be readable after
@@ -601,6 +608,9 @@ class Organizer:
                 raise RuntimeError(t("err.tag_check"))
             os.replace(tmp, p)
             return changed
+        except BaseException:
+            self._write_log("falhou", p, snap)  # not changed: Undo skips this entry
+            raise
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
@@ -647,8 +657,8 @@ class Organizer:
         done = self._done_archives()
         out = []
         for dp, dirs, files in os.walk(self.root):
-            dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS and not (dp == self.root and d == QUARANTINE)
-                       and not self.left_alone(os.path.join(dp, d))]  # _entrada included: packs inside packs
+            # _entrada included (packs inside packs); _quarentena, _Backup, junctions excluded
+            dirs[:] = [d for d in dirs if _descend(dp, d, self.root) and not self.left_alone(os.path.join(dp, d))]
             for n in files:
                 p = os.path.join(dp, n)
                 if self.left_alone(p):
@@ -682,6 +692,13 @@ class Organizer:
     def _extract(self, archives, seven):
         done = self._done_archives()
         inbox = os.path.join(self.root, INBOX)
+        for dp, dirs, _ in os.walk(inbox) if os.path.isdir(inbox) else []:  # a crash mid-unpack left half a pack
+            for d in dirs:
+                p = os.path.join(dp, d)
+                is_link = os.path.islink(p) or getattr(os.path, "isjunction", lambda _: False)(p)
+                if d.endswith(STAGING) and not is_link:  # only our own real folders, never through a junction
+                    shutil.rmtree(p, ignore_errors=True)
+            dirs[:] = [d for d in dirs if _descend(dp, d, self.root)]
         for i, a in enumerate(archives, 1):
             self._tick("extract", i, len(archives), os.path.basename(a))
             stem = os.path.splitext(os.path.basename(a))[0].strip(" .")
@@ -694,21 +711,23 @@ class Organizer:
             while os.path.exists(out):
                 out, k = os.path.join(parent, f"{stem} ({k})"), k + 1
             aid = self._archive_id(a)
+            part = out + STAGING  # never walked: half a pack is never sorted as if it were complete
             try:
                 self._extracted_archives += 1
                 if self._extracted_archives > MAX_ARCHIVES:
                     raise RuntimeError(t("err.archive_many", n=self._extracted_archives))
                 if a.lower().endswith(".zip"):
-                    self._unzip(a, out)
+                    self._unzip(a, part)
                 elif seven:
-                    self._un7z(seven, a, out)
+                    self._un7z(seven, a, part)
                 else:
                     raise RuntimeError(t("err.need_7zip"))
+                os.rename(part, out)
             except Cancelled:
-                shutil.rmtree(out, ignore_errors=True)  # our own fresh folder: half an extraction is useless
+                shutil.rmtree(part, ignore_errors=True)  # our own fresh folder: half an extraction is useless
                 raise
             except Exception as e:
-                shutil.rmtree(out, ignore_errors=True)
+                shutil.rmtree(part, ignore_errors=True)
                 self.errors.append(f"{os.path.basename(a)}: {e}")
                 continue
             self._write_log("extraido", aid or a, out)
@@ -765,7 +784,7 @@ class Organizer:
     def plan_genre(self, path, info=None):
         info = info or read_info(path)
         rel = os.path.relpath(path, self.root).split(os.sep)
-        pack = rel[1] if rel[0] == INBOX and len(rel) > 2 else None
+        pack = rel[1] if os.path.normcase(rel[0]) == os.path.normcase(INBOX) and len(rel) > 2 else None
         g = self.overrides.get(self.override_key(path, info))
         if g == NO_GENRE:  # taken out of a guessed genre on purpose
             return NO_GENRE
@@ -813,7 +832,9 @@ class Organizer:
                     ext = os.path.splitext(n)[1].lower()
                     if self.left_alone(p):
                         continue
-                    if (ext in JUNK_EXT or (ext in ARCHIVES and self._archive_id(p) in done)) and self.trash(p):
+                    leftover_pack = (ext in ARCHIVES and self._archive_id(p) in done
+                                     and (os.path.normcase(dp) != os.path.normcase(inbox) or self.opts.delete_archives))
+                    if (ext in JUNK_EXT or leftover_pack) and self.trash(p):
                         self.report["junk_trashed"] += 1
         self.remove_empty_dirs()
 
@@ -1063,8 +1084,9 @@ class Organizer:
                 self.save_inventory()
             except OSError as e:
                 self.errors.append(f"{self._inventory_path}: {e}")
-            if self._log:
-                self._log.close()
+            finally:
+                if self._log:
+                    self._log.close()
         return self.report, self.errors
 
     def preview(self):
@@ -1145,8 +1167,9 @@ class Organizer:
         if self.opts.bpm_folders:
             rep["bpm_pending"] = len(self._loose_unsorted())
         if self.opts.covers:
-            rep["covers_pending"] = sum(1 for p, i in infos.items() if self._in_scope(p) and not i["unreadable"]
-                                        and not i["cover"])
+            bare = [p for p, i in infos.items() if self._in_scope(p) and not i["unreadable"] and not i["cover"]]
+            rep["covers_pending"] = len(bare)
+            self.plan += [("cover", p, t("plan.cover_detail")) for p in bare]
         if self.opts.online and os.path.isdir(self.target_dir(NO_GENRE)):
             rep["online_pending"] = sum(1 for p in self.audio_files(self.target_dir(NO_GENRE)) if self._in_scope(p))
         inbox = os.path.join(self.root, INBOX)
@@ -1423,70 +1446,79 @@ def _undo_last(root, progress, cancel, protected=()):
     overrides_path = os.path.join(data, "generos_corrigidos.json")
     overrides = _read_json(overrides_path, {})
     extracted = set(_read_json(os.path.join(data, "extraidos.json"), []))
-    with open(done_path, "a", encoding="utf-8") as done_fh:
-        for n, (i, r) in enumerate(reversed(todo), 1):  # newest first: replays the chain backwards
-            if cancel is not None and cancel.is_set():
-                raise Cancelled()
-            kind, a, b = r[:3]
-            progress("undo", n, len(todo), os.path.basename(a))
-            touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind in ("tags", "capa") else []
-            if any(os.path.isabs(p) and inside(p) for p in touched):
-                errors.append(t("err.undo_protected", path=a))
-                retry[0] = True  # stays pending: undone later, when the folder is no longer protected
-                continue
-            ok = False
-            if kind == "tags":
-                if not os.path.exists(a):
-                    errors.append(t("err.undo_missing", path=a))
-                else:
-                    try:
-                        _safe_restore(a, b, run_id)
-                        rep["undo_tags"] += 1
-                        ok = True
-                    except Exception as e:  # e.g. file open in another program: try again later
-                        errors.append(f"{a}: {e}")
-                        retry[0] = True
-            elif kind == "capa":  # the track had no cover before this run
-                if not os.path.exists(a):
-                    errors.append(t("err.undo_missing", path=a))
-                else:
-                    try:
-                        if _safe_uncover(a, b, run_id):
-                            rep["undo_covers"] += 1
-                        ok = True
-                    except Exception as e:
-                        errors.append(f"{a}: {e}")
-                        retry[0] = True
-            elif kind == "genero":
-                okey, prev = (r[4], r[5]) if len(r) > 5 else (None, "")
-                if okey:
-                    if prev:
-                        overrides[okey] = prev
+    try:  # cancelled halfway: the entries already undone are kept on disk too
+        with open(done_path, "a", encoding="utf-8") as done_fh:
+            for n, (i, r) in enumerate(reversed(todo), 1):  # newest first: replays the chain backwards
+                if cancel is not None and cancel.is_set():
+                    raise Cancelled()
+                kind, a, b = r[:3]
+                progress("undo", n, len(todo), os.path.basename(a))
+                touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind in ("tags", "capa") else []
+                if any(os.path.isabs(p) and inside(p) for p in touched):
+                    errors.append(t("err.undo_protected", path=a))
+                    retry[0] = True  # stays pending: undone later, when the folder is no longer protected
+                    continue
+                ok = False
+                if kind == "tags":
+                    if not os.path.exists(a):
+                        errors.append(t("err.undo_missing", path=a))
                     else:
-                        overrides.pop(okey, None)
-                ok = True
-            elif kind == "extraido":
-                if os.path.isdir(b):  # what is left of the extraction (the tracks were moved back into it)
-                    dst = os.path.join(root, QUARANTINE, run_id, "_extracoes_desfeitas", os.path.basename(b))
-                    os.makedirs(os.path.dirname(dst), exist_ok=True)
-                    try:
-                        os.rename(b, dst)
-                    except OSError as e:
-                        errors.append(f"{b}: {e}")
-                        retry[0] = True
-                        continue
-                extracted.discard(a)
-                rep["undo_extract"] += 1
-                ok = True
-            else:
-                ok = _move_back(a, b, errors, retry)
+                        try:
+                            _safe_restore(a, b, run_id)
+                            rep["undo_tags"] += 1
+                            ok = True
+                        except Exception as e:  # e.g. file open in another program: try again later
+                            errors.append(f"{a}: {e}")
+                            retry[0] = True
+                elif kind == "capa":  # the track had no cover before this run
+                    if not os.path.exists(a):
+                        errors.append(t("err.undo_missing", path=a))
+                    else:
+                        try:
+                            if _safe_uncover(a, b, run_id):
+                                rep["undo_covers"] += 1
+                            ok = True
+                        except Exception as e:
+                            errors.append(f"{a}: {e}")
+                            retry[0] = True
+                elif kind == "genero":
+                    okey, prev = (r[4], r[5]) if len(r) > 5 else (None, "")
+                    if okey:
+                        if prev:
+                            overrides[okey] = prev
+                        else:
+                            overrides.pop(okey, None)
+                    ok = True
+                elif kind == "extraido":
+                    if os.path.isdir(b):  # what is left of the extraction (the tracks were moved back into it)
+                        base = os.path.join(root, QUARANTINE, run_id, "_extracoes_desfeitas", os.path.basename(b))
+                        dst, k = base, 2
+                        while os.path.exists(dst):  # two packs both called CD1.zip
+                            dst, k = f"{base} ({k})", k + 1
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        try:
+                            os.rename(b, dst)
+                        except OSError as e:
+                            errors.append(f"{b}: {e}")
+                            retry[0] = True
+                            continue
+                    extracted.discard(a)
+                    rep["undo_extract"] += 1
+                    ok = True
+                else:
+                    ok = _move_back(a, b, errors, retry)
+                    if ok:
+                        rep["undo_from_quarantine" if kind == "quarentena" else "undo_returned"] += 1
                 if ok:
-                    rep["undo_from_quarantine" if kind == "quarentena" else "undo_returned"] += 1
-            if ok:
-                done_fh.write(f"{i}\n")
-                done_fh.flush()
-    _write_json(overrides_path, overrides)
-    _write_json(os.path.join(data, "extraidos.json"), sorted(extracted))
+                    if kind == "genero":
+                        _write_json(overrides_path, overrides)  # saved before the entry counts as done
+                    elif kind == "extraido":
+                        _write_json(os.path.join(data, "extraidos.json"), sorted(extracted))
+                    done_fh.write(f"{i}\n")
+                    done_fh.flush()
+    finally:
+        _write_json(overrides_path, overrides)
+        _write_json(os.path.join(data, "extraidos.json"), sorted(extracted))
     legacy = sum(1 for r in rows if r[0] == "reciclagem")  # runs before the quarantine existed
     if legacy:
         rep["undo_in_trash"] = legacy

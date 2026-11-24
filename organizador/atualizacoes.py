@@ -19,7 +19,8 @@ UA = f"GrooveWizard/{__version__}"
 
 def parse(v):
     """'v1.0.10' -> (1, 0, 10); anything odd -> ()."""
-    return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])
+    n = [int(x) for x in re.findall(r"\d+", v or "")[:3]]
+    return tuple(n + [0] * (3 - len(n))) if n else ()  # '1.0' == '1.0.0'
 
 
 def newer(remote, local=__version__):
@@ -52,16 +53,21 @@ def download(url, sha256, progress=None):
         raise ValueError("release has no SHA-256 to check against")
     dst = os.path.join(tempfile.gettempdir(), os.path.basename(url.split("?")[0]))
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=60) as r, open(dst + ".part", "wb") as fh:
-        total = int(r.headers.get("Content-Length") or 0)
-        done = 0
-        h = hashlib.sha256()
-        while chunk := r.read(1 << 16):
-            fh.write(chunk)
-            h.update(chunk)
-            done += len(chunk)
-            if progress:
-                progress(done, total)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r, open(dst + ".part", "wb") as fh:
+            total = int(r.headers.get("Content-Length") or 0)
+            done = 0
+            h = hashlib.sha256()
+            while chunk := r.read(1 << 16):
+                fh.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, total)
+    except BaseException:
+        if os.path.exists(dst + ".part"):
+            os.remove(dst + ".part")  # half a download is never left in %TEMP%
+        raise
     if h.hexdigest() != sha256:
         os.remove(dst + ".part")
         raise ValueError("SHA-256 does not match the release notes")

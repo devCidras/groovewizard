@@ -55,6 +55,9 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 - **Quarentena**: as repetidas vão para uma pasta escondida (`_quarentena`) dentro da biblioteca. O botão **Ver quarentena** abre-a. Ficam lá 30 dias e depois vão para a Reciclagem (ou já, com **Esvaziar quarentena**).
 - As tags são gravadas primeiro numa cópia, que é verificada antes de substituir a faixa. Ficheiros estragados (que não se conseguem ler) não são mexidos. No fim, as pastas que ficaram vazias são apagadas.
 - Recusa pastas perigosas (disco inteiro, pasta do utilizador, Windows, Program Files, AppData) e não deixa duas janelas organizar a mesma biblioteca.
+- Pastas da pasta principal cujo nome começa por `_` (por exemplo `_Backup`) e atalhos de pasta (junções) são ignorados: a app nunca sai da biblioteca.
+- Os packs são descompactados para uma pasta temporária e só ficam com o nome final quando terminam; se o PC desligar a meio, o pack é descompactado outra vez na próxima organização.
+- Um pack que puseres à mão na pasta de entrada fica lá depois de descompactado, a não ser que ligues **Apagar os packs depois de descompactar**.
 
 ## Como usar
 
@@ -147,7 +150,7 @@ python app.py
 - Protected folders are never touched; *Only new tracks* sorts only what arrived since last time; *Report* lists tracks with problems without changing anything.
 - Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
 
-**Safeguards:** *Preview* changes nothing and *See list* shows every change track by track, so you can untick tracks. *Undo…* goes back to any recent organize: tracks return to where they were, duplicates come out of quarantine and tags go back to what they were. Removed tracks wait 30 days in a hidden `_quarentena` folder before going to the Recycle Bin. Tags are written to a checked copy first. Dangerous folders (whole drive, user folder, Windows) are refused.
+**Safeguards:** *Preview* changes nothing and *See list* shows every change track by track, so you can untick tracks. *Undo…* goes back to any recent organize: tracks return to where they were, duplicates come out of quarantine and tags go back to what they were. Removed tracks wait 30 days in a hidden `_quarentena` folder before going to the Recycle Bin. Tags are written to a checked copy first. Dangerous folders (whole drive, user folder, Windows) are refused. Root folders starting with `_` (e.g. `_Backup`) and folder junctions are skipped, so the app never leaves the library; packs are unpacked to a temporary folder and only get their real name once complete.
 
 **Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check**, close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*: the PC shuts down (60 s to cancel) only if the run finishes without errors. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
 

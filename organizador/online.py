@@ -1,4 +1,5 @@
 """Genre lookup online: Discogs (styles per track), Last.fm and MusicBrainz (tags per artist). Cached in JSON."""
+import http.client
 import json
 import os
 import threading
@@ -31,11 +32,13 @@ def check_key(service, key, timeout=15):
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):  # Discogs: bad token; Last.fm answers 403 for an invalid key
             return "invalid", ""
+        if service == "discogs" or e.code >= 429:
+            return "offline", f"HTTP {e.code}"  # busy / server error: we don't know if the key is good
         try:
-            data = json.load(e)
+            data = json.load(e)  # Last.fm explains a bad key in the body
         except Exception:
             return "offline", f"HTTP {e.code}"
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+    except (OSError, http.client.HTTPException, ValueError) as e:
         return "offline", str(getattr(e, "reason", e))
     if service == "lastfm" and data.get("error"):
         return ("invalid", "") if data["error"] in (10, 26) else ("offline", data.get("message", ""))
@@ -72,7 +75,9 @@ class Cached:
         try:
             with open(path, encoding="utf-8") as fh:
                 self.cache = json.load(fh)
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (OSError, ValueError):  # missing or damaged: start empty
+            self.cache = {}
+        if not isinstance(self.cache, dict):
             self.cache = {}
 
     def fetch(self, url, headers):
@@ -83,19 +88,28 @@ class Cached:
             self.last = time.time()
             try:
                 with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
-                    return json.load(r)
+                    data = json.load(r)
+                if isinstance(data, dict) and data.get("error"):  # Deezer quota / Last.fm bad key, with a 200
+                    return None
+                return data
             except urllib.error.HTTPError as e:
-                if e.code not in (429, 500, 502, 503):
-                    return {}
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+                if e.code in (401, 403):
+                    return None  # bad key: not cached as 'no result', tried again once the key is fixed
+                if e.code not in (429, 500, 502, 503, 504):
+                    return {}  # e.g. 404: really nothing there
+            except (OSError, http.client.HTTPException, ValueError):  # dropped connection, bad data, timeout
                 pass
         return None  # failed: not cached, retried next run
 
     def save(self):
+        """Best effort: a cache that can't be written (disk full) only means asking again next time."""
         tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(self.cache, fh, ensure_ascii=False)
-        os.replace(tmp, self.path)
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self.cache, fh, ensure_ascii=False)
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
 
 
 class Discogs(Cached):
@@ -139,6 +153,9 @@ class Discogs(Cached):
     def image(self, url, folder):
         """The image's bytes (kept in `folder`, so tracks of the same release download it once), or None."""
         import hashlib
+        import re
+        if not re.match(r"^https://[\w.-]+\.(discogs\.com|dzcdn\.net|deezer\.com)/", url or ""):
+            return None  # only the services' own image servers
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, hashlib.sha1(url.encode()).hexdigest()[:20])
         from .tags import image_type
@@ -155,7 +172,7 @@ class Discogs(Cached):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=30) as r:
                 data = r.read(5 * 1024 * 1024 + 1)
-        except (urllib.error.URLError, TimeoutError, OSError):
+        except (OSError, http.client.HTTPException, ValueError):
             return None
         if len(data) > 5 * 1024 * 1024 or not image_type(data):  # only real JPEG/PNG, never huge files
             return None
@@ -258,7 +275,6 @@ class Lookup:
     """genre(artist, title) -> (folder, source) or (None, None). Discogs per track wins; else best artist tag."""
 
     def __init__(self, data_dir, discogs_token="", lastfm_key="", musicbrainz=False, cancel=None):
-        self.sources = []
         self.dg = Discogs(data_dir, discogs_token, cancel) if discogs_token else None
         self.lf = LastFM(data_dir, lastfm_key, cancel) if lastfm_key else None
         self.mb = MusicBrainz(data_dir, cancel) if musicbrainz else None

@@ -148,8 +148,6 @@ class StatusIcon(QWidget):
 
 class StepRow(QWidget):
     """Status icon + title + live counter."""
-    COLORS = {"waiting": C["muted"], "running": C["secondary_hover"], "done": C["accent"], "off": "#3A3A55",
-              "error": C["danger"]}
 
     def __init__(self, title):
         super().__init__()
@@ -241,6 +239,11 @@ class Window(QMainWindow):
         self.resize(1080, 760)
         self.setMinimumSize(900, 620)
         self.thread = None
+        self.worker = None
+        self.cancel = threading.Event()
+        self.current_row = None
+        self._updating = False
+        self._plan, self._plan_opts, self._plan_snapshot = [], None, None
         self._key_ui = {}
         self._key_result.connect(self._show_key_result)  # once: results come back to the UI thread
         self._update_info = None
@@ -314,7 +317,7 @@ class Window(QMainWindow):
         row = QHBoxLayout()
         self.folder = QLineEdit(opts.root, placeholderText=t("folder.placeholder"))
         self.folder.setAccessibleName(t("folder.dialog"))
-        pick = QPushButton(t("folder.pick"), cursor=Qt.PointingHandCursor)
+        pick = self.pick_btn = QPushButton(t("folder.pick"), cursor=Qt.PointingHandCursor)
         pick.clicked.connect(self.pick_folder)
         row.addWidget(self.folder, 1)
         row.addWidget(pick)
@@ -561,6 +564,8 @@ class Window(QMainWindow):
         status.setStyleSheet("")
         status.setText(t("key.checking"))
         key = edit.text()
+        self._checking = getattr(self, "_checking", {})
+        self._checking[service] = key  # the result is shown only if the field still holds this key
         threading.Thread(target=lambda: self._key_result.emit(service, *check_key(service, key)), daemon=True).start()
 
     def _show_key_result(self, service, result, detail):
@@ -568,6 +573,11 @@ class Window(QMainWindow):
             return
         button, status = self._key_ui[service]
         button.setEnabled(True)
+        key = getattr(self, "_checking", {}).get(service)
+        field = self.discogs if service == "discogs" else self.lastfm  # the current widget, never an old one
+        if key is None or field.text() != key:
+            status.setText("")  # changed while it was being checked: that result is not about the key in the field now
+            return
         color = {"ok": C["accent"], "invalid": C["danger"]}.get(result, C["warn"])
         status.setStyleSheet(f"color:{color};")
         status.setText(t("key." + result, detail=detail).strip())
@@ -638,7 +648,8 @@ class Window(QMainWindow):
 
     def busy(self, on):
         for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_quarantine, self.btn_report, self.btn_plan,
-                  self.protected, self.protect_add, self.protect_del, self.folder, self.lang_combo, *self.toggles.values()):
+                  self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
+                  self.lang_combo, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
 
@@ -671,6 +682,8 @@ class Window(QMainWindow):
             return
         self.reset_rows(opts, kind)
         self.current_row = None
+        self.bar.setMaximum(1)
+        self.bar.setValue(0)
         self.clear_stats()
         self.btn_plan.hide()  # a list from an earlier Preview no longer matches the files
         self._plan_opts = asdict(opts) if kind == "preview" else None  # the list is valid only for these options
@@ -685,9 +698,9 @@ class Window(QMainWindow):
         self.worker.ask.connect(self.ask_rename)
         for sig in (self.worker.finished, self.worker.failed):
             sig.connect(self.thread.quit)
+        self.thread.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self._thread_done)
         self.busy(True)
-        self._last_kind = kind
         self.log.appendPlainText(f"— {t('log.kind.' + kind)}: {opts.root}")
         self.status.setText(t("status.starting"))
         self.thread.start()
@@ -793,7 +806,7 @@ class Window(QMainWindow):
             self.shutdown_toggle.setChecked(False)
 
     def _maybe_shutdown(self, kind):
-        """After an Organize run (finished or stopped by an error, not cancelled by the user): 60 s to change your mind."""
+        """After an Organize run that finished (never after an error or a cancel): 60 s to change your mind."""
         if kind != "run" or not self.shutdown_toggle.isChecked():
             return
         self.shutdown_toggle.setChecked(False)
@@ -816,9 +829,8 @@ class Window(QMainWindow):
             self.log.appendPlainText(t("shut.cancelled"))
 
     def _thread_done(self):
-        thread, worker = self.thread, self.worker
-        self.thread = self.worker = None
-        worker.deleteLater()
+        thread = self.thread
+        self.thread = self.worker = None  # the worker deletes itself when its thread ends (connected in start)
         thread.deleteLater()
         self.busy(False)
 
@@ -862,8 +874,8 @@ class Window(QMainWindow):
 
     def on_failed(self, msg):
         # never shut down after an error or a cancel: only a run that finished (see on_finished)
-        if self.current_row is not None:
-            self.current_row.set("error")
+        if self.current_row is not None:  # cancelled by the user: a plain stop, not a red cross
+            self.current_row.set("waiting" if self.cancel.is_set() else "error", t("state.error"))
         self.status.setText(t("status.stopped"))
         self.log.appendPlainText(msg)
 

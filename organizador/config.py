@@ -18,8 +18,15 @@ PATH = os.path.join(APP_DIR, "config.json")
 def _read():
     try:
         with open(PATH, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (FileNotFoundError, json.JSONDecodeError):
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):  # damaged: kept as config.json.estragado, settings start over
+        try:
+            os.replace(PATH, PATH + ".estragado")
+        except OSError:
+            pass
         return {}
 
 
@@ -59,23 +66,44 @@ def _seal(value):
     return "dpapi:" + base64.b64encode(enc).decode() if enc else value
 
 
-def _open_sealed(value):
+_UNREADABLE = {}  # key name -> sealed value this Windows user can't open (other PC / profile): kept, never wiped
+
+
+def _open_sealed(value, name=""):
     if not isinstance(value, str) or not value.startswith("dpapi:"):
         return value  # plain (older config or no DPAPI): re-sealed on next save
-    dec = _dpapi(base64.b64decode(value[6:]), False)
-    return dec.decode("utf-8") if dec else ""
+    try:
+        dec = _dpapi(base64.b64decode(value[6:]), False)
+        return dec.decode("utf-8") if dec else _keep(name, value)
+    except (ValueError, UnicodeDecodeError):
+        return _keep(name, value)
+
+
+def _keep(name, value):
+    if name:
+        _UNREADABLE[name] = value
+    return ""
 
 
 def load():
     cfg = _read()
     known = {f.name for f in fields(Options)}
-    opts = Options(**{k: v for k, v in cfg.get("opcoes", {}).items() if k in known})
-    return opts, {k: _open_sealed(v) for k, v in cfg.get("chaves", {}).items()}
+    saved = cfg.get("opcoes") if isinstance(cfg.get("opcoes"), dict) else {}
+    keys = cfg.get("chaves") if isinstance(cfg.get("chaves"), dict) else {}
+    opts = Options(**{k: v for k, v in saved.items() if k in known})
+    if not isinstance(opts.protected, list):
+        opts.protected = []
+    return opts, {k: _open_sealed(v, k) for k, v in keys.items()}
 
 
 def save(opts, keys):
     cfg = _read()
-    cfg.update(opcoes=asdict(opts), chaves={k: _seal(v) for k, v in keys.items()})
+    for k, v in keys.items():
+        if v:
+            _UNREADABLE.pop(k, None)  # replaced by a new key: the old unreadable one is gone for good
+    # a key that couldn't be opened and is still empty in the window keeps its old sealed value
+    cfg.update(opcoes=asdict(opts), chaves={k: (_UNREADABLE[k] if not v and k in _UNREADABLE else _seal(v))
+                                            for k, v in keys.items()})
     _write(cfg)
 
 

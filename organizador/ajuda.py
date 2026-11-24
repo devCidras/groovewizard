@@ -32,7 +32,7 @@ HELP = {
   <li><b>Fontes online</b> (opcional): cola as chaves grátis do Discogs e do Last.fm. Ajudam a descobrir o género
       das faixas que não o têm.</li>
   <li><b>Passos:</b> liga só o que queres que a app faça.</li>
-  <li><b>Pré-visualizar</b> mostra o que vai mudar, <b>sem mexer em nada</b>. Depois aparece <b>Ver lista</b>,
+  <li><b>Pré-visualizar</b> mostra o que vai mudar, <b>sem mexer em nada</b>. Depois aparece <b>Ver lista</b> (também com as capas que vai pôr),
       com cada faixa: podes desmarcar as que não queres que sejam tocadas.</li>
   <li><b>Organizar</b> faz as mudanças. Podes <b>Cancelar</b> a meio: o que já foi feito fica feito.</li>
   <li>No fim, no <b>rekordbox</b>: <i>Ficheiro › Gerir faixas inexistentes › Auto Relocate</i> (escolhe a pasta) e
@@ -85,8 +85,8 @@ HELP = {
    recupera essas faixas.</p>
 <h3>Bom saber</h3>
 <ul>
-  <li>A app lembra-se das faixas que já viu, para saber quais são novas. Na primeira organização com a versão 1.5
-      lê um pedaço de cada faixa; numa biblioteca grande demora uns minutos a mais, só dessa vez.</li>
+  <li>A app lembra-se das faixas que já viu, para saber quais são novas. Depois de atualizares para a versão 1.5 ou
+      mais recente, a primeira organização lê um pedaço de cada faixa; numa biblioteca grande demora uns minutos a mais, só dessa vez.</li>
   <li>As definições e chaves ficam em <code>%APPDATA%\\GrooveWizard</code>, fora da pasta das músicas (não aparecem
       se a partilhares no Soulseek / Nicotine+).</li>
 </ul>
@@ -106,7 +106,7 @@ HELP = {
   <li><b>Online sources</b> (optional): paste your free Discogs and Last.fm keys. They help find the genre of tracks
       that don't have one.</li>
   <li><b>Steps:</b> turn on only what you want the app to do.</li>
-  <li><b>Preview</b> shows what will change, <b>without touching anything</b>. Then <b>See list</b> shows every
+  <li><b>Preview</b> shows what will change, <b>without touching anything</b>. Then <b>See list</b> (also with the cover art it will add) shows every
       track: you can untick the ones you don't want touched.</li>
   <li><b>Organize</b> makes the changes. You can <b>Cancel</b> halfway: what's done stays done.</li>
   <li>Afterwards, in <b>rekordbox</b>: <i>File › Manage Missing Files › Auto Relocate</i> (pick the folder), then in
@@ -158,8 +158,8 @@ HELP = {
    tracks back.</p>
 <h3>Good to know</h3>
 <ul>
-  <li>The app remembers the tracks it has seen, to tell which ones are new. The first time you organize with version
-      1.5 it reads a piece of every track; in a big library that takes a few extra minutes, only that once.</li>
+  <li>The app remembers the tracks it has seen, to tell which ones are new. After updating to version 1.5 or later, the
+      first organize reads a piece of every track; in a big library that takes a few extra minutes, only that once.</li>
   <li>Settings and keys are kept in <code>%APPDATA%\\GrooveWizard</code>, outside your music folder (they don't show
       up if you share it on Soulseek / Nicotine+).</li>
 </ul>

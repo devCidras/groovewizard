@@ -10,6 +10,9 @@ except Exception:  # not installed, or broken native deps
 
 def fold(bpm):
     """Beat trackers return half/double tempo; club music sits between 90 and 180."""
+    import math
+    if not bpm or not math.isfinite(bpm) or bpm <= 0:
+        return None  # unknown (NaN / infinite / negative would loop or fail)
     while bpm and bpm < 90:
         bpm *= 2
     while bpm and bpm > 180:
@@ -18,7 +21,8 @@ def fold(bpm):
 
 
 def bucket(bpm, names=FOLDER_NAMES["pt"]):
-    if not bpm:
+    import math
+    if not bpm or not math.isfinite(bpm):
         return names["bpm_unknown"]
     return names["bpm"][next(i for i, top in enumerate(BPM_LIMITS) if bpm < top)]
 

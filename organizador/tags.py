@@ -22,7 +22,8 @@ VERSION = re.compile(r"[\(\[]\s*(extended|original|radio|club)?\s*(mix|edit|vers
 # strict mode: only Original/Extended are the same arrangement; Radio Edit / Club Mix stay separate tracks
 VERSION_STRICT = re.compile(r"[\(\[]\s*(extended|original)\s*(mix|version)?\s*[\)\]]", re.I)
 JUNK = re.compile(r"[\(\[]?\s*(www\.\S+|\S+\.(com|org|net))\s*[\)\]]?|\[whoplaymusic\]|\(\d{4}\)|\(\d+\)$", re.I)
-LEADING_NUM = re.compile(r"^\s*(\[[^\]]*\]\s*)?(\d+[A-Za-z]?\s*[-.]\s*)*(\d+[\s.]+)?")  # "01. ", "1A - 145 - ", "[9A, 130] "
+# "01. ", "1A - 145 - ", "[9A, 130] ", "01 " ; never "808 State", "50 Cent" (no separator after the number)
+LEADING_NUM = re.compile(r"^\s*(\[[^\]]*\]\s*)?(\d+[A-Za-z]?\s*(?:[-._)](?!\d)|\s-\s)\s*)*(0\d\s+)?")
 
 
 def is_audio(name):
@@ -116,10 +117,11 @@ def tag_bpm(path):
             if k in t:
                 v = t[k]
                 v = v.text[0] if hasattr(v, "text") else v[0]
-                b = float(v)
-                return b if 50 <= b <= 250 else None
+                b = float(str(v).replace(",", ".").split()[0])
+                if 50 <= b <= 250:
+                    return b
         except (TypeError, ValueError, KeyError, IndexError):
-            return None
+            continue  # a bad value here: try the next key
     return None
 
 
@@ -205,6 +207,8 @@ def set_cover(path, data):
     f = mutagen.File(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
+    if _has_cover(f):
+        raise ValueError("already has cover art")  # an existing cover is never replaced
     ext = os.path.splitext(path)[1].lower()
     if ext == ".flac":
         pic = Picture()
@@ -292,7 +296,7 @@ def artist_title(path, info=None):
 
 def artists_key(a):
     a = re.sub(r"\b(feat|ft|featuring)\b\.?", ",", a, flags=re.I)
-    parts = re.split(r",|&|;|/|\bx\b|\band\b|\bvs\b\.?", a, flags=re.I)
+    parts = re.split(r",|&|;|/|\s+x\s+|\band\b|\bvs\b\.?", a, flags=re.I)  # ' x ' only between names
     return " + ".join(sorted({norm(p) for p in parts if norm(p)}))
 
 
@@ -440,8 +444,9 @@ def strip_sites(text):
     if _WHOLE.fullmatch(text):
         return ""
     out = _PIECES.sub("", text)
-    if out != text:  # a site came out: no dangling separator or comma left behind ('Iglesias,')
-        out = out.strip(" -|–—:,")
+    if out == text:
+        return text  # no site: untouched, whatever it looks like ('!!!' is a band)
+    out = out.strip(" -|–—:,")  # a site came out: no dangling separator or comma left behind ('Iglesias,')
     return out if re.search(r"\w", out) else ""
 
 
