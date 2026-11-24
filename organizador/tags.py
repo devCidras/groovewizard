@@ -296,6 +296,10 @@ _DOMAIN = r"(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info|
 # spam = the whole field is a domain, a bracketed domain, a " - domain" suffix, or anything with www./http
 _WHOLE = re.compile(r"\s*[\[(]?\s*(?:(?:https?://|www\.)\S+|[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info)\b/?\S*?)\s*[\])]?\s*", re.I)
 _PIECES = re.compile(r"\s*[\[(]\s*" + _DOMAIN + r"\s*[\])]"
+                     # last of a list of artists: 'Iglesias, Sharing-DB.club' -> 'Iglesias'; only unmistakable sites
+                     # (.com/.net/.org/.ru/.info, or a hyphen in the name): 'Artist, Toolroom.Club' / 'Love.me' stay
+                     r"|\s*,\s*(?:(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info)"
+                     r"|(?:www\.)?[\w]+-[\w-]+\.[a-z]{2,10})/?\s*$"
                      r"|\s*[-|–—]\s*" + _DOMAIN + r"\s*$"
                      r"|\s*(?:https?://|www\.)\S+", re.I)
 _ID3_TEXT = {"TALB", "TIT2", "TPE1", "TPE2", "TPUB", "COMM", "TCOP", "TENC", "TXXX"}
@@ -310,7 +314,9 @@ def strip_sites(text):
     text = re.sub(r"(?<=\S)-(?=(?:https?://|www\.))", " - ", text, flags=re.I)
     if _WHOLE.fullmatch(text):
         return ""
-    out = _PIECES.sub("", text).strip(" -|–—:")
+    out = _PIECES.sub("", text)
+    if out != text:  # a site came out: no dangling separator or comma left behind ('Iglesias,')
+        out = out.strip(" -|–—:,")
     return out if re.search(r"\w", out) else ""
 
 

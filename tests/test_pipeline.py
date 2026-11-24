@@ -46,6 +46,10 @@ def test_rules():
     assert strip_sites("djsoundtop.com") == ""
     assert strip_sites("Crazy (Extended Mix) [4DJsonline.com]") == "Crazy (Extended Mix)"
     assert strip_sites("https://electronicfresh.com") == ""
+    assert strip_sites("Iglesias, Sharing-DB.club") == "Iglesias"  # site last in a list of artists: no comma left
+    assert strip_sites(" Groove ") == " Groove " and strip_sites("A, B") == "A, B"  # no site: untouched
+    assert strip_sites("Various Artists, Toolroom.Club") == "Various Artists, Toolroom.Club"
+    assert strip_sites("Artist, Love.me") == "Artist, Love.me" and strip_sites("A, djsoundtop.com") == "A"
     for real in ("Love.me (Extended Mix)", "Back.to Life", "Toolroom Records", "Original Mix", "Kiss.Me", "Toolroom.Club"):
         assert strip_sites(real) == real, real
     assert title_key("Go Back feat. Julia (Extended Mix)") == title_key("Go Back (Original Mix)")
