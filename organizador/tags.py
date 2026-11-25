@@ -8,6 +8,7 @@ import unicodedata
 
 import mutagen
 from mutagen.id3 import TCON
+from mutagen.id3._file import find_id3v1
 
 from .regras import ALIAS, FOLDER_RULES
 
@@ -311,7 +312,7 @@ def put_back_cover(path, data):
                     f.tags.add(item)
             else:
                 f.tags.add(pic)
-    _save(f, ext, version)
+    _save_cover(f, ext, version)
 
 
 def set_cover(path, data):
@@ -341,7 +342,7 @@ def set_cover(path, data):
             f.tags["covr"] = [MP4Cover(data, imageformat=fmt)]
         else:
             f.tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
-    _save(f, ext, version)
+    _save_cover(f, ext, version)
 
 
 def remove_cover(path, digest):
@@ -373,7 +374,7 @@ def remove_cover(path, digest):
                     else:
                         del f.tags["covr"]
     if found:
-        _save(f, ext, version)
+        _save_cover(f, ext, version)
     return found
 
 
@@ -636,11 +637,30 @@ def _clean(f, path, write):
     return changed
 
 
-def _save(f, ext, v2_version=None):
-    if ext in ID3_EXT and v2_version in (3, 4):
-        f.save(v2_version=v2_version)
-    else:
-        f.save()
+def _id3v1(path):
+    """Copy the MP3 trailer verbatim, including values shadowed by ID3v2."""
+    with open(path, "rb") as fh:
+        _, offset = find_id3v1(fh)
+        if not offset:
+            return b""
+        fh.seek(offset, os.SEEK_END)
+        return fh.read()
+
+
+def _save(f, ext, v2_version=None, *, id3v1=None):
+    options = {"v2_version": v2_version} if ext in ID3_EXT and v2_version in (3, 4) else {}
+    if id3v1 is None:
+        f.save(**options)
+        return
+    with open(f.filename, "r+b") as fh:
+        f.save(fh, v1=0, **options)
+        fh.seek(0, os.SEEK_END)
+        fh.write(id3v1)
+
+
+def _save_cover(f, ext, v2_version):
+    # ID3v1 has no artwork. Mutagen normally regenerates it from ID3v2 on a save.
+    _save(f, ext, v2_version, id3v1=_id3v1(f.filename) if ext == ".mp3" else None)
 
 
 def fix_tags(path, genre=None, clean=False):
@@ -669,29 +689,53 @@ def _text_keys(f):
     return [k for k in f.tags.keys() if not str(k).startswith(_PICTURES)] if f.tags is not None else []
 
 
-def snapshot(path):
-    """Text tags (no cover art) as a compact string, to put the file back as it was."""
+def _snapshot_data(path):
     f = mutagen.File(path)
     if f is None:
-        return ""
-    id3 = os.path.splitext(path)[1].lower() in ID3_EXT
+        return None
+    ext = os.path.splitext(path)[1].lower()
+    id3 = ext in ID3_EXT
     data = None if f.tags is None else {k: (copy.deepcopy(f.tags.getall(k)) if id3 else copy.deepcopy(f.tags[k]))
                                        for k in _text_keys(f)}
     version = f.tags.version[1] if id3 and f.tags is not None and hasattr(f.tags, "version") else None
-    return base64.b64encode(pickle.dumps((id3, data, version), protocol=4)).decode("ascii")
+    fields = (id3, data, version)
+    return (*fields, _id3v1(path)) if ext == ".mp3" else fields
+
+
+def _pack_snapshot(data):
+    return base64.b64encode(pickle.dumps(data, protocol=4)).decode("ascii") if data is not None else ""
+
+
+def _unpack_snapshot(snap):
+    return pickle.loads(base64.b64decode(snap))  # our own run log in %APPDATA%, never external input
+
+
+def snapshot(path):
+    """Text tags (no cover art) as a compact string, to put the file back as it was."""
+    return _pack_snapshot(_snapshot_data(path))
+
+
+def snapshot_matches(path, snap):
+    """Compare with the fields recorded by this run, including older logs without an ID3v1 trailer."""
+    current = _snapshot_data(path)
+    if current is None or not snap:
+        return current is None and not snap
+    return any(_pack_snapshot(current[:size]) == snap for size in range(len(current), 1, -1))
 
 
 def restore(path, snap):
     """Undo of fix_tags: text tags back to the snapshot. Only reads snapshots this app wrote itself."""
     if not snap:
         return
-    saved = pickle.loads(base64.b64decode(snap))  # our own run log in %APPDATA%, never external input
-    id3, data, version = (*saved, None) if len(saved) == 2 else saved
+    id3, data, *metadata = _unpack_snapshot(snap)
+    version = metadata[0] if metadata else None
+    ext = os.path.splitext(path)[1].lower()
+    id3v1 = (metadata[1] if len(metadata) > 1 else _id3v1(path)) if ext == ".mp3" else None
     f = mutagen.File(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
     if f.tags is None:
-        if not data:
+        if not data and not id3v1:
             return
         f.add_tags()
     for k in _text_keys(f):
@@ -705,4 +749,4 @@ def restore(path, snap):
             f.tags.setall(k, v)
         else:
             f.tags[k] = v
-    _save(f, os.path.splitext(path)[1].lower(), version)
+    _save(f, ext, version, id3v1=id3v1)

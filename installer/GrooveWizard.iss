@@ -1,7 +1,7 @@
 ; Instalador Windows (Inno Setup 6). Gerado por build.ps1 depois do PyInstaller.
 #define AppName "GrooveWizard"
 #ifndef AppVersion
-  #define AppVersion "1.8.1"
+  #define AppVersion "1.9.0"
 #endif
 
 [Setup]

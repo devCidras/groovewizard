@@ -33,7 +33,7 @@ from .online import Deezer, Discogs, Lookup
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
                    normalize_genre, pack_file_name, raw_genre, read_info, remove_cover, restore, search_terms, clean_file_name,
-                   set_cover, snapshot, track_key, version_label, cover_digest, pictures,
+                   set_cover, snapshot, snapshot_matches, track_key, version_label, cover_digest, pictures,
                    picture_records, put_back_cover)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
@@ -1749,7 +1749,7 @@ def _undo_last(root, progress, cancel, protected=()):
                     if not os.path.exists(a):
                         errors.append(t("err.undo_missing", path=a))
                         retry[0] = True
-                    elif len(r) > 3 and snapshot(a) != r[3]:
+                    elif len(r) > 3 and not snapshot_matches(a, r[3]):
                         errors.append(t("err.undo_tags_changed", path=a))
                         retry[0] = True
                     else:

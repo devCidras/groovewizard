@@ -657,6 +657,61 @@ def test_covers():
         pl.Discogs, pl.Deezer = real
 
 
+def test_undo_mp3_id3v1():
+    from pathlib import Path
+
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QImage
+    from mutagen.id3 import ID3
+    from organizador.tags import (_pack_snapshot, _snapshot_data, cover_digest, picture_records, put_back_cover,
+                                  remove_cover, set_cover, snapshot, snapshot_matches)
+
+    root = Path(TMP, "id3v1")
+    track = root / "Techno" / "Techno" / "Artist - Song.mp3"
+    track.parent.mkdir(parents=True)
+    audio = (b"\xff\xfb\x90\x64" + bytes(413)) * 12
+    track.write_bytes(audio)
+    tags = ID3()
+    for frame in (TIT2(encoding=3, text=["Song"]), TPE1(encoding=3, text=["Artist"]),
+                  TALB(encoding=3, text=["Modern album"]), TCON(encoding=3, text=["Techno"])):
+        tags.add(frame)
+    tags.save(track)
+    trailer = (b"TAG" + b"Song".ljust(30, b"\0") + b"Artist".ljust(30, b"\0")
+               + b"Different legacy album".ljust(30, b"\0") + b"2026"
+               + b"https://djsoundtop.com".ljust(28, b"\0") + b"\0\x07\x12")
+    with track.open("ab") as fh:
+        fh.write(trailer)
+
+    im = QImage(2, 2, QImage.Format_RGB888)
+    im.fill(0)
+    buffer = QBuffer()
+    buffer.open(QIODevice.WriteOnly)
+    assert im.save(buffer, "PNG")
+    cover = bytes(buffer.data())
+    set_cover(track, cover)
+    record = picture_records(track)[0]
+    assert track.read_bytes().endswith(audio + trailer)
+    assert remove_cover(track, cover_digest(cover)) and track.read_bytes().endswith(audio + trailer)
+    put_back_cover(track, record)
+    assert track.read_bytes().endswith(audio + trailer)
+
+    opts = pl.Options(root=str(root), online=False, bpm_folders=False, dedupe=False)
+    report, errors = pl.Organizer(opts).run()
+    assert not errors and report["sites_cleaned"] == 1, (report, errors)
+    edited = track.read_bytes()
+    assert not edited.endswith(trailer)
+    expected = snapshot(track)
+    old_log = _pack_snapshot(_snapshot_data(track)[:3])
+    assert snapshot_matches(track, old_log)
+    track.write_bytes(edited[:-65] + b"Manual legacy-only change".ljust(30, b"\0") + edited[-35:])
+    assert not snapshot_matches(track, expected) and snapshot_matches(track, old_log)
+    track.write_bytes(edited)
+    report, errors = pl.undo_last(str(root))
+    assert not errors and report["undo_tags"] == 1, (report, errors)
+    assert track.read_bytes().endswith(audio + trailer)
+    assert picture_records(track) == [record]
+
+
 def test_covers_all_with_only_new():
     """The cover override reaches old bare tracks, without widening any other step."""
     import struct
@@ -1644,6 +1699,7 @@ if __name__ == "__main__":
         test_unticked_on_first_run_stay_known()
         test_same_size_new_track()
         test_covers()
+        test_undo_mp3_id3v1()
         test_covers_all_with_only_new()
         test_old_step_scopes()
         test_review_fixes()
