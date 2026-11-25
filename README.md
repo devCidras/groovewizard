@@ -49,9 +49,9 @@ A tecla **F1** abre a ajuda em qualquer separador.
 9. **Pastas protegidas**: escolhes pastas em que a app nunca toca (os teus edits, sets já preparados).
 10. **Só faixas novas** (opção): fica disponível depois da primeira organização completa da pasta. A partir daí, arruma só o que chegou desde a última vez. Em **Também nas antigas…** podes escolher, separadamente, quais os passos a repetir nas faixas antigas: arrumar por género, remover repetidas, procurar género online, separar por BPM, gravar género na tag, limpar sites das tags, pôr capas e trocar capas de sites. Tudo começa desligado. A comparação de repetidas pode ler a biblioteca toda, mas só altera as antigas se escolheres esse passo. As pastas protegidas continuam excluídas.
 11. **Põe capas** (opção) nas faixas sem capa, com a capa do lançamento (Deezer e, com a chave, Discogs). Nunca troca uma capa que já exista. Se escolheres pôr capas também nas antigas, pesquisa as faixas sem capa da biblioteca inteira; se não encontrar uma capa, não altera a faixa. Com **Trocar capas de sites** (opção), tira as capas que são publicidade de sites ou genéricas (ex.: símbolo do Beatport) e procura a verdadeira; as de artistas e labels ficam. Se não encontrar substituta para uma capa de site, a faixa pode ficar sem capa. **Ver capas repetidas…** deixa-te marcar as de sites novos.
-12. **Relatório**: mostra, sem mexer em nada, as faixas sem artista ou título, sem género, MP3 de menor qualidade, muito curtas ou com tags estragadas (lista para o Excel).
+12. **Relatório**: mostra, sem mexer em nada, as faixas sem artista ou título, sem género, MP3 de menor qualidade, faixas muito curtas ou que a app não conseguiu ler (lista para o Excel).
 
-**Formatos de áudio:** MP3, FLAC, AIFF/AIF, WAV e M4A.
+**Formatos de áudio:** MP3, FLAC, AIFF/AIF, WAV e M4A. Se uma extensão desta lista diferir do conteúdo, a app usa o formato detetado no ficheiro.
 
 ## Capturas
 
@@ -158,7 +158,7 @@ python app.py
 - Removes website names (e.g. `www.djsoundtop.com`) from tags, and website names and track numbers (`05. `) from new tracks' file names; can name new tracks `Artist - Title (Extended Mix)`. Tracks from packs change right away, other new tracks after you confirm; tracks you already had keep their name unless you turn on the option for old tracks (it asks first).
 - Optionally adds cover art to tracks without one (Deezer, and Discogs with the key); existing covers are never replaced. *Replace site covers* (option) takes out site ads and generic covers (e.g. the Beatport logo) and looks for the real one; *See repeated covers…* lets you tick the ones from new sites.
 - Protected folders are never touched. *Only new tracks* becomes available after the first completed full run. Under *Also on old tracks…*, you can independently repeat genre sorting, duplicate removal, online genre lookup, BPM sorting, genre tag writing, website-name cleanup in tags, adding missing cover art, or replacing site covers on old tracks. All overrides default to off. Duplicate comparison may still read the whole library; it only changes old tracks when selected. *Report* lists tracks with problems without changing anything.
-- Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
+- Formats: MP3, FLAC, AIFF/AIF, WAV, and M4A. If a listed extension differs from the actual format, the app uses the format detected in the file.
 
 **Safeguards:** *Preview* changes nothing, but cannot show tracks still in packs, online results or site cleanup inside tags. *Undo…* goes back to recent organize runs. After 30 days, the next organize run sends old quarantine folders to the Recycle Bin. Tags are written to a checked copy first. Dangerous folders (whole drive, user folder, Windows, Program Files and AppData) are refused.
 

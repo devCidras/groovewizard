@@ -7,8 +7,14 @@ import re
 import unicodedata
 
 import mutagen
+from mutagen.aiff import AIFF, AIFFFile, error as AIFFError
+from mutagen.flac import FLAC
 from mutagen.id3 import TCON
 from mutagen.id3._file import find_id3v1
+from mutagen.id3._util import BitPaddedInt
+from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4
+from mutagen.wave import WAVE
 
 from .regras import ALIAS, FOLDER_RULES
 
@@ -16,6 +22,8 @@ AUDIO = {".mp3", ".flac", ".aiff", ".aif", ".wav", ".m4a"}
 LOSSLESS = {".flac", ".wav", ".aiff", ".aif"}
 ID3_EXT = {".mp3", ".aiff", ".aif", ".wav"}
 GENRE_KEYS = ("TCON", "genre", "GENRE", "\xa9gen")
+_MEDIA_EXT = {AIFF: ".aiff", FLAC: ".flac", MP3: ".mp3", MP4: ".m4a", WAVE: ".wav"}
+_ID3_FRAME_ID = re.compile(rb"[A-Z0-9]{4}")
 
 SPAM = re.compile(r"https?:|www\.|\.com\b|\.net\b|\.org\b", re.I)
 JUNK_TAG_SPAM = SPAM  # a genre tag that is a site
@@ -33,9 +41,87 @@ def is_audio(name):
     return os.path.splitext(name)[1].lower() in AUDIO
 
 
+class _AIFFTagReader:
+    """Give Mutagen a corrected ID3 header for this read, with no change to the file."""
+
+    def __init__(self, file, tag_offset, size):
+        self.file = file
+        self.tag_offset = tag_offset
+        self.tag_size = BitPaddedInt.to_str(size, width=4)
+
+    def __getattr__(self, name):
+        return getattr(self.file, name)
+
+    def read(self, size=-1):
+        offset = self.file.tell()
+        data = self.file.read(size)
+        # Mutagen's ID3Header reads the ten-byte header at the start of the tag.
+        if offset == self.tag_offset and len(data) == 10:
+            return data[:6] + self.tag_size
+        return data
+
+
+def _id3_frames_fit(file, remaining, version):
+    while remaining:
+        header = file.read(min(10, remaining))
+        remaining -= len(header)
+        if header.startswith(b"\0"):
+            return not header.strip(b"\0") and not file.read(remaining).strip(b"\0")
+        if len(header) != 10 or not _ID3_FRAME_ID.fullmatch(header[:4]):
+            return False
+        if version == 4 and not BitPaddedInt.has_valid_padding(header[4:8]):
+            return False
+        size = BitPaddedInt(header[4:8]) if version == 4 else int.from_bytes(header[4:8], "big")
+        if not 0 < size <= remaining:
+            return False
+        file.seek(size, os.SEEK_CUR)
+        remaining -= size
+    return True
+
+
+def _load_aiff(file, filename):
+    try:
+        return AIFF(file, filename=filename)
+    except AIFFError:
+        # Some exports advertise more ID3 padding than fits in the enclosing AIFF chunk.
+        file.seek(0)
+        aiff = AIFFFile(file)
+        if "ID3" not in aiff:
+            raise
+        chunk = aiff["ID3"]
+        if chunk.offset + chunk.size > min(file.seek(0, os.SEEK_END), aiff.root.size):
+            raise
+        file.seek(chunk.data_offset)
+        header = file.read(10)
+        if (len(header) != 10 or header[:3] != b"ID3" or header[3] not in (3, 4)
+                or header[4:6] != b"\0\0" or not BitPaddedInt.has_valid_padding(header[6:])):
+            raise
+        available = chunk.data_size - len(header)
+        if not 0 <= available < BitPaddedInt(header[6:]) or not _id3_frames_fit(file, available, header[3]):
+            raise
+        file.seek(0)
+        return AIFF(_AIFFTagReader(file, chunk.data_offset, available), filename=filename)
+
+
+def _load(path):
+    filename = os.fspath(path)
+    with open(filename, "rb") as file:
+        header = file.read(12)
+        file.seek(0)
+        if header.startswith(b"fLaC"):
+            return FLAC(file, filename=filename)
+        if header[4:8] == b"ftyp":
+            return MP4(file, filename=filename)
+        if header[:4] == b"FORM" and header[8:12] in (b"AIFF", b"AIFC"):
+            return _load_aiff(file, filename)
+        if header[:4] == b"RIFF" and header[8:12] == b"WAVE":
+            return WAVE(file, filename=filename)
+        return mutagen.File(file, options=_MEDIA_EXT, filename=filename)
+
+
 def _open(path):
     try:
-        return mutagen.File(path)
+        return _load(path)
     except Exception:
         return None
 
@@ -267,10 +353,10 @@ def put_back_cover(path, data):
     png = data[:8] == b"\x89PNG\r\n\x1a\n"
     mime = ("image/png" if png else "image/gif" if data[:4] == b"GIF8"
             else "image/webp" if data[8:12] == b"WEBP" else "image/jpeg")
-    f = mutagen.File(path)
+    f = _load(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
-    ext = os.path.splitext(path)[1].lower()
+    ext = _MEDIA_EXT[type(f)]
     version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     if ext == ".flac":
         pic = Picture()
@@ -323,12 +409,12 @@ def set_cover(path, data):
     mime = image_type(data)
     if not mime:
         raise ValueError("not a JPEG/PNG image")
-    f = mutagen.File(path)
+    f = _load(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
     if _has_cover(f):
         raise ValueError("already has cover art")  # an existing cover is never replaced
-    ext = os.path.splitext(path)[1].lower()
+    ext = _MEDIA_EXT[type(f)]
     version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     if ext == ".flac":
         pic = Picture()
@@ -347,10 +433,10 @@ def set_cover(path, data):
 
 def remove_cover(path, digest):
     """Undo of set_cover: takes out only the picture with this digest (the one the app added). Returns True if found."""
-    f = mutagen.File(path)
+    f = _load(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
-    ext = os.path.splitext(path)[1].lower()
+    ext = _MEDIA_EXT[type(f)]
     version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     found = False
     if getattr(f, "pictures", None):  # FLAC
@@ -381,15 +467,16 @@ def remove_cover(path, digest):
 def read_info(path):
     """Everything the organizer needs from one file, with a single open: genre text, artist, title, duration."""
     f = _open(path)
-    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "bitrate": 0, "cover": False, "unreadable": f is None}
+    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "bitrate": 0, "cover": False,
+            "format": "", "unreadable": f is None}
     if f is None:
         return info
+    ext = info["format"] = _MEDIA_EXT[type(f)]
     info["duration"] = f.info.length if f.info else 0.0
     info["bitrate"] = getattr(f.info, "bitrate", 0) or 0  # bits/s; 0 when the format doesn't say
     info["cover"] = _has_cover(f)
     if not f.tags:
         return info
-    ext = os.path.splitext(path)[1].lower()
     kind = "id3" if ext in ID3_EXT else "mp4" if ext == ".m4a" else "vorbis"
     info["artist"], info["title"] = _first(f.tags, _ARTIST[kind]), _first(f.tags, _TITLE[kind])
     for k in GENRE_KEYS:
@@ -597,14 +684,15 @@ def clean_sites(path, write=True):
     """Removes download-site names from album/title/comment/... Returns number of fields changed."""
     if write:
         return fix_tags(path, clean=True)[1]
-    f = mutagen.File(path)
-    return _clean(f, path, False) if f and f.tags else 0
+    f = _load(path)
+    return _clean(f, _MEDIA_EXT[type(f)], False) if f and f.tags else 0
 
 
-def _clean(f, path, write):
+def _clean(f, ext, write):
+    id3 = ext in ID3_EXT
     changed = 0
     for key in list(f.tags.keys()):
-        if os.path.splitext(path)[1].lower() in ID3_EXT:
+        if id3:
             fid = key[:4]
             if fid in _ID3_URL:
                 frame = f.tags[key]
@@ -630,7 +718,7 @@ def _clean(f, path, write):
             continue
         if not new:
             del f.tags[key]
-        elif os.path.splitext(path)[1].lower() in ID3_EXT:
+        elif id3:
             f.tags[key].text = new
         else:
             f.tags[key] = new
@@ -665,16 +753,16 @@ def _save_cover(f, ext, v2_version):
 
 def fix_tags(path, genre=None, clean=False):
     """genre: None = leave, '' = remove, text = set. One save for both edits. -> (genre_changed, site_fields_changed)."""
-    f = mutagen.File(path)
+    f = _load(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
-    ext = os.path.splitext(path)[1].lower()
+    ext = _MEDIA_EXT[type(f)]
     version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     g = 0
     if genre is not None and not (f.tags is None and not genre):
         _set_genre(f, ext, genre)
         g = 1
-    s = _clean(f, path, True) if clean and f.tags else 0
+    s = _clean(f, ext, True) if clean and f.tags else 0
     if g or s:
         _save(f, ext, version)
     return g, s
@@ -690,13 +778,14 @@ def _text_keys(f):
 
 
 def _snapshot_data(path):
-    f = mutagen.File(path)
+    f = _load(path)
     if f is None:
         return None
-    ext = os.path.splitext(path)[1].lower()
+    ext = _MEDIA_EXT[type(f)]
     id3 = ext in ID3_EXT
+    keys = sorted(_text_keys(f)) if ext == ".flac" else _text_keys(f)
     data = None if f.tags is None else {k: (copy.deepcopy(f.tags.getall(k)) if id3 else copy.deepcopy(f.tags[k]))
-                                       for k in _text_keys(f)}
+                                       for k in keys}
     version = f.tags.version[1] if id3 and f.tags is not None and hasattr(f.tags, "version") else None
     fields = (id3, data, version)
     return (*fields, _id3v1(path)) if ext == ".mp3" else fields
@@ -720,7 +809,19 @@ def snapshot_matches(path, snap):
     current = _snapshot_data(path)
     if current is None or not snap:
         return current is None and not snap
-    return any(_pack_snapshot(current[:size]) == snap for size in range(len(current), 1, -1))
+    if any(_pack_snapshot(current[:size]) == snap for size in range(len(current), 1, -1)):
+        return True
+    if current[0] or current[1] is None:
+        return False
+    # Older FLAC snapshots followed the Vorbis comment dictionary's process-dependent key order.
+    try:
+        id3, recorded, *metadata = _unpack_snapshot(snap)
+    except (EOFError, TypeError, ValueError, pickle.UnpicklingError):
+        return False
+    actual = current[1]
+    return (not id3 and isinstance(recorded, dict) and tuple(metadata) == current[2:2 + len(metadata)]
+            and recorded.keys() == actual.keys()
+            and all(_pack_snapshot(recorded[k]) == _pack_snapshot(actual[k]) for k in actual))
 
 
 def restore(path, snap):
@@ -729,11 +830,11 @@ def restore(path, snap):
         return
     id3, data, *metadata = _unpack_snapshot(snap)
     version = metadata[0] if metadata else None
-    ext = os.path.splitext(path)[1].lower()
-    id3v1 = (metadata[1] if len(metadata) > 1 else _id3v1(path)) if ext == ".mp3" else None
-    f = mutagen.File(path)
+    f = _load(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
+    ext = _MEDIA_EXT[type(f)]
+    id3v1 = (metadata[1] if len(metadata) > 1 else _id3v1(path)) if ext == ".mp3" else None
     if f.tags is None:
         if not data and not id3v1:
             return

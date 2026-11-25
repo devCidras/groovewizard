@@ -712,6 +712,74 @@ def test_undo_mp3_id3v1():
     assert picture_records(track) == [record]
 
 
+def test_audio_format_and_aiff_padding():
+    from pathlib import Path
+
+    import numpy as np
+    import soundfile as sf
+    from mutagen.aiff import AIFF, AIFFFile
+    from mutagen.flac import FLAC
+    from mutagen.id3._util import BitPaddedInt
+    from organizador.tags import _pack_snapshot, _snapshot_data, read_info, snapshot, snapshot_matches
+
+    root = Path(TMP, "audio-format")
+    loose = root / "loose"
+    loose.mkdir(parents=True)
+    audio = np.arange(8000, dtype=np.int16)
+    flac = loose / "Wrong suffix.wav"
+    sf.write(flac, audio, 8000, format="FLAC")
+    media = FLAC(flac)
+    media["artist"], media["title"], media["genre"] = "Artist", "Wrong suffix", "Techno | House"
+    media.save()
+
+    aiff = loose / "ID3 padding.aiff"
+    sf.write(aiff, audio, 8000, format="AIFF")
+    media = AIFF(aiff)
+    media.add_tags()
+    media.tags.add(TIT2(encoding=3, text=["ID3 padding"]))
+    media.tags.add(TCON(encoding=3, text=["Techno | House"]))
+    media.save()
+    with aiff.open("r+b") as file:
+        chunk = AIFFFile(file)["ID3"]
+        declared = BitPaddedInt.to_str(chunk.data_size - 10 + 14, width=4)
+        file.seek(chunk.data_offset + 6)
+        file.write(declared)
+
+    broken = Path(TMP, "Incomplete ID3 frame.aiff")
+    shutil.copy2(aiff, broken)
+    with broken.open("r+b") as file:
+        file.seek(chunk.data_offset + 14)
+        file.write(declared)  # the first frame now claims data beyond the chunk, not just missing padding
+    assert read_info(broken)["unreadable"]
+
+    files = (flac, aiff)
+    originals = {path: path.read_bytes() for path in files}
+    tags = {path: snapshot(path) for path in files}
+    id3, fields, version = _snapshot_data(flac)
+    old_order = dict(reversed(tuple(fields.items())))
+    assert snapshot_matches(flac, _pack_snapshot((id3, old_order, version)))
+    old_order["artist"] = ["A different artist"]
+    assert not snapshot_matches(flac, _pack_snapshot((id3, old_order, version)))
+    assert [read_info(path)["format"] for path in files] == [".flac", ".aiff"]
+    assert read_info(flac)["artist"] == "Artist"
+    opts = pl.Options(root=str(root), online=False, bpm_folders=False, dedupe=False)
+    org = pl.Organizer(opts)
+    report = org.preview()
+    assert report["tracks"] == 2 and not report["unreadable"], report
+    assert {path: path.read_bytes() for path in files} == originals
+    report, errors = pl.Organizer(opts).run()
+    assert not errors and report["genre_tag_fixed"] == 2, (report, errors)
+    for path in files:
+        moved = next(root.rglob(path.name))
+        assert moved != path and raw_genre(moved) == "Techno"
+        assert np.array_equal(sf.read(moved, dtype="int16")[0], audio)
+    report, errors = pl.undo_last(str(root))
+    assert not errors and report["undo_tags"] == 2, (report, errors)
+    for path in files:
+        assert snapshot(path) == tags[path]
+        assert np.array_equal(sf.read(path, dtype="int16")[0], audio)
+
+
 def test_covers_all_with_only_new():
     """The cover override reaches old bare tracks, without widening any other step."""
     import struct
@@ -1700,6 +1768,7 @@ if __name__ == "__main__":
         test_same_size_new_track()
         test_covers()
         test_undo_mp3_id3v1()
+        test_audio_format_and_aiff_padding()
         test_covers_all_with_only_new()
         test_old_step_scopes()
         test_review_fixes()

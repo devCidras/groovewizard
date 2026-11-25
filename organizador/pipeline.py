@@ -675,7 +675,7 @@ class Organizer:
         snap = snapshot(p)
         self._fp_cache.pop(self._rel(p), None)  # content changes: never reuse its old fingerprint (coarse mtimes)
         before = read_info(p)["duration"]
-        tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"  # same extension: mutagen picks the format by it
+        tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"
         try:
             shutil.copy2(p, tmp)
             changed = fix_tags(tmp, genre=genre, clean=clean)
@@ -931,14 +931,14 @@ class Organizer:
     # ---------- duplicates ----------
 
     @staticmethod
-    def _score(path, dur, title=""):
+    def _score(path, dur, title="", format_hint=""):
         # DJ preference: Extended Mix (file name or title tag), then longest, then lossless, then bigger file
         ext = bool(re.search(r"extended", os.path.basename(path) + " " + (title or ""), re.I))
         try:
             size = os.path.getsize(path)
         except OSError:  # vanished during the run
             size = -1
-        return ext, round(dur), os.path.splitext(path)[1].lower() in LOSSLESS, size
+        return ext, round(dur), (format_hint or os.path.splitext(path)[1].lower()) in LOSSLESS, size
 
     def _losers(self, group, infos):
         """Sorted best first. The same version (e.g. two 'Original Mix') with clearly different lengths is
@@ -965,7 +965,8 @@ class Organizer:
         out = []
         for v in groups.values():
             if len(v) > 1 and any(self._step_scope(p, self.opts.dedupe_all) for p, _ in v):
-                ranked = sorted(v, key=lambda x: self._score(x[0], x[1], infos[x[0]]["title"]), reverse=True)
+                ranked = sorted(v, key=lambda x: self._score(x[0], x[1], infos[x[0]]["title"], infos[x[0]].get("format", "")),
+                                reverse=True)
                 # only new: an old copy is never removed (the rest of the library is left as it is), even if the
                 # new one is better; a full run sorts that out
                 losers = [p for p in self._losers(ranked, infos)
@@ -1671,7 +1672,7 @@ def library_report(organizer, csv_path):
                 problems.append("report_no_artist_title")
             if not info["genre"]:
                 problems.append("report_no_genre")
-            if p.lower().endswith(".mp3") and 0 < info.get("bitrate", 0) < 320000:
+            if info["format"] == ".mp3" and 0 < info.get("bitrate", 0) < 320000:
                 problems.append("report_low_bitrate")
             if 0 < info["duration"] < 60:
                 problems.append("report_short")
