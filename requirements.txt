@@ -1,5 +1,8 @@
 mutagen==1.48.1
 PySide6==6.12.0
 Send2Trash==2.2.0
-# opcional: medir BPM das faixas sem tag de BPM (fica fora do .exe)
-# librosa>=0.10
+numpy==2.4.4
+soundfile==0.14.0
+cffi==2.0.0
+pycparser==3.0
+typing_extensions==4.15.0

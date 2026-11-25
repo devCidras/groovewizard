@@ -4,6 +4,7 @@ Every change is logged before it happens so the last run can be undone: extracti
 (original tags are saved) and removals. Removed files go to a quarantine folder inside the library (same
 drive, instant), kept 30 days, then sent to the Recycle Bin. Nothing is ever deleted outright.
 """
+import base64
 import csv
 import ctypes
 import errno
@@ -12,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -31,7 +33,7 @@ from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
                    normalize_genre, pack_file_name, raw_genre, read_info, remove_cover, restore, search_terms, clean_file_name,
                    set_cover, snapshot, track_key, version_label, cover_digest, pictures,
-                   put_back_cover)
+                   picture_records, put_back_cover)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
 for _old in ("Cratekeeper", "OrganizadorMusica"):  # names before v1.2 / v0.2
@@ -52,13 +54,18 @@ QUARANTINE_DAYS = 30
 REMOVED_COVERS = "capas_tiradas"  # in the library's data folder: site covers taken out (few, shared by many tracks), for Undo
 MARKED_COVERS = os.path.join(APP_DIR, "capas_marcadas.json")  # covers the user said are not real ones
 INVENTORY = "faixas_conhecidas.json"  # tracks the app has seen: anything else is new (see Organizer.is_new)
+BPM_CACHE = "bpm_medidos.json"
+BPM_CACHE_VERSION = 1
 QUARANTINE_MARK = ".quarentena-da-app"  # written by the app; a _quarentena without it is not ours
 RUN_DIR = re.compile(r"^\d{8}-\d{6}-\d+-\d+$")  # run_id format
+TEMP_COPY = re.compile(r"\.ck-(?:undo-)?\d{8}-\d{6}-\d+-\d+(?:\.[^.]+)?$", re.I)
 KEEP_LOGS = 30
 # extraction guards (zip bombs, full disks), per run
 MAX_MEMBERS = 100_000
 MAX_ARCHIVES = 500
 MAX_RATIO = 200
+RATIO_MIN_BYTES = 200 * 1024 * 1024
+MAX_RUN_EXTRACTED = 100 * (1 << 30)
 FREE_MARGIN = 1 << 30  # keep 1 GB free
 SAME_VERSION_TOLERANCE = 15  # s: same artist/title/version but this much longer/shorter = a different recording
 csv.field_size_limit(1 << 30)  # tag snapshots are long
@@ -108,7 +115,7 @@ def data_dir_for(root):
 def _write_json(path, obj):
     """Atomic: a crash leaves the old file, never half a file."""
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    with open(tmp, "w", encoding="utf-8", errors="surrogatepass") as fh:
         json.dump(obj, fh, ensure_ascii=False)
         fh.flush()
         os.fsync(fh.fileno())
@@ -117,9 +124,9 @@ def _write_json(path, obj):
 
 def _read_json(path, default):
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8", errors="surrogatepass") as fh:
             return json.load(fh)
-    except (FileNotFoundError, ValueError):  # ValueError: bad JSON or bad bytes (UnicodeDecodeError)
+    except (OSError, ValueError):  # missing/busy/bad JSON or bad bytes: cache/state can be rebuilt
         return default
 
 
@@ -213,9 +220,23 @@ def protectable(root, dirs):
 
 def _find_7zip():
     for p in SEVEN_ZIP:
-        if os.path.isfile(p) or shutil.which(p):
+        if os.path.isfile(p):
             return p
+        found = shutil.which(p)
+        if found:
+            return found
     return None
+
+
+def _remove_temp(path):
+    """Best-effort removal of a copy2() temporary, including copies of read-only tracks."""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        os.chmod(path, os.stat(path).st_mode | stat.S_IWRITE)
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def _hide(path):
@@ -247,11 +268,16 @@ class Organizer:
         self.run_id = time.strftime("%Y%m%d-%H%M%S", time.localtime(now // 10**9)) + f"-{now % 10**9:09d}-{os.getpid()}"
         self.qdir = os.path.join(self.root, QUARANTINE, self.run_id)
         self._overrides_path = os.path.join(self.data, "generos_corrigidos.json")
-        self.overrides = _read_json(self._overrides_path, {})  # track id -> genre found online
+        overrides = _read_json(self._overrides_path, {})  # track id -> genre found online
+        self.overrides = overrides if isinstance(overrides, dict) else {}
         self._extracted_bytes = self._extracted_members = self._extracted_archives = 0
         # new tracks outside _entrada are renamed only if this says yes: ask_rename([(path, new name), ...]) -> bool
         self.ask_rename = ask_rename
         self._inventory_path = os.path.join(self.data, INVENTORY)
+        self._bpm_cache_path = os.path.join(self.data, BPM_CACHE)
+        bpm_cache = _read_json(self._bpm_cache_path, {})
+        self._bpm_cache = bpm_cache.get("items", {}) if isinstance(bpm_cache, dict) and (
+            bpm_cache.get("version") == BPM_CACHE_VERSION and isinstance(bpm_cache.get("items"), dict)) else {}
         inv = _read_json(self._inventory_path, None)  # tracks seen in earlier runs; None before the first run
         self.known = None if not isinstance(inv, dict) else (set(inv.get("paths", [])), set(inv.get("sizes", [])))
         inv = inv if isinstance(inv, dict) else {}
@@ -293,7 +319,7 @@ class Organizer:
     def _write_log(self, *row):
         if self._log is None:
             path = os.path.join(self.data, "execucoes", self.run_id + ".csv")
-            self._log = open(path, "x", newline="", encoding="utf-8")
+            self._log = open(path, "x", newline="", encoding="utf-8", errors="surrogatepass")
             self._logw = csv.writer(self._log)
         self._logw.writerow(row)
         self._log.flush()
@@ -545,16 +571,16 @@ class Organizer:
         if self.left_alone(dst_dir):  # never into a protected folder: the track stays where it is
             self.errors.append(t("err.protected_target", path=src))
             return None
-        os.makedirs(dst_dir, exist_ok=True)
-        if not self.name_usable(src, dst_dir, name):
-            name = None
-        base, ext = os.path.splitext(os.path.join(dst_dir, name or os.path.basename(src)))
-        dst, i = base + ext, 1
-        while os.path.exists(dst):
-            dst, i = f"{base} ({i}){ext}", i + 1
-        self._write_log("mover", src, dst)  # before the move: a crash right after still leaves a record
         tmp = None
         try:
+            os.makedirs(dst_dir, exist_ok=True)
+            if not self.name_usable(src, dst_dir, name):
+                name = None
+            base, ext = os.path.splitext(os.path.join(dst_dir, name or os.path.basename(src)))
+            dst, i = base + ext, 1
+            while os.path.exists(dst):
+                dst, i = f"{base} ({i}){ext}", i + 1
+            self._write_log("mover", src, dst)  # before the move: a crash right after still leaves a record
             try:
                 os.rename(src, dst)  # same drive; on Windows it fails instead of overwriting
             except OSError as e:
@@ -566,12 +592,14 @@ class Organizer:
                 tmp = None
                 os.remove(src)
         except OSError as e:
-            self._write_log("falhou", src, dst)
-            if tmp and os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+            if "dst" in locals():
+                self._write_log("falhou", src, dst)
+                if tmp is None and os.path.exists(src) and os.path.exists(dst):
+                    _remove_temp(dst)  # cross-drive copy succeeded but deleting the source did not
+                # A cross-drive copy is not a move until the source is gone. Remove our destination on failure.
+                if os.path.exists(src) and os.path.exists(dst):
+                    _remove_temp(dst)
+            _remove_temp(tmp)
             self.errors.append(f"{src}: {e}")
             return None
         self._track_moves(src, dst)  # only after it really moved
@@ -606,7 +634,6 @@ class Organizer:
         """Original tags go to the run log first; the edit is made on a copy that must reopen with the same
         length before it replaces the original, so a failed save can never damage the track."""
         snap = snapshot(p)
-        self._write_log("tags", p, snap)
         self._fp_cache.pop(self._rel(p), None)  # content changes: never reuse its old fingerprint (coarse mtimes)
         before = read_info(p)["duration"]
         tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"  # same extension: mutagen picks the format by it
@@ -617,20 +644,21 @@ class Organizer:
             # length unknown before (some AIFF without tags report 0) only needs to be readable after
             if check["unreadable"] or not check["duration"] or (before and abs(check["duration"] - before) > 0.5):
                 raise RuntimeError(t("err.tag_check"))
+            self._write_log("tags", p, snap, snapshot(tmp))
             os.replace(tmp, p)
             return changed
         except BaseException:
-            self._write_log("falhou", p, snap)  # not changed: Undo skips this entry
+            if self._log is not None:
+                self._write_log("falhou", p, snap)  # not changed: Undo skips this entry
             raise
         finally:
-            if os.path.exists(tmp):
-                os.remove(tmp)
+            _remove_temp(tmp)
 
     def audio_files(self, base=None):
         for dp, _, files in self._walk(base):
             for n in files:
                 p = os.path.join(dp, n)
-                if is_audio(n) and ".ck-" not in n and not self.left_alone(p):  # .ck-: our temp copies (crash)
+                if is_audio(n) and not TEMP_COPY.search(n) and not self.left_alone(p):
                     yield p
 
     def _read_all(self, files, step):
@@ -688,7 +716,8 @@ class Organizer:
             return None
 
     def _done_archives(self):
-        return set(_read_json(os.path.join(self.data, "extraidos.json"), []))
+        value = _read_json(os.path.join(self.data, "extraidos.json"), [])
+        return set(value) if isinstance(value, list) else set()
 
     def step_extract(self):
         seven = _find_7zip()
@@ -703,13 +732,6 @@ class Organizer:
     def _extract(self, archives, seven):
         done = self._done_archives()
         inbox = os.path.join(self.root, INBOX)
-        for dp, dirs, _ in os.walk(inbox) if os.path.isdir(inbox) else []:  # a crash mid-unpack left half a pack
-            for d in dirs:
-                p = os.path.join(dp, d)
-                is_link = os.path.islink(p) or getattr(os.path, "isjunction", lambda _: False)(p)
-                if d.endswith(STAGING) and not is_link:  # only our own real folders, never through a junction
-                    shutil.rmtree(p, ignore_errors=True)
-            dirs[:] = [d for d in dirs if _descend(dp, d, self.root)]
         for i, a in enumerate(archives, 1):
             self._tick("extract", i, len(archives), os.path.basename(a))
             stem = os.path.splitext(os.path.basename(a))[0].strip(" .")
@@ -719,14 +741,18 @@ class Organizer:
                 self.errors.append(t("err.protected_target", path=a))
                 continue
             out, k = os.path.join(parent, stem), 2
-            while os.path.exists(out):
+            while os.path.lexists(out) or os.path.lexists(out + STAGING):
                 out, k = os.path.join(parent, f"{stem} ({k})"), k + 1
             aid = self._archive_id(a)
-            part = out + STAGING  # never walked: half a pack is never sorted as if it were complete
+            part = out + STAGING  # older interrupted folders are left alone, not assumed to belong to this app
+            part_created = False
             try:
                 self._extracted_archives += 1
                 if self._extracted_archives > MAX_ARCHIVES:
                     raise RuntimeError(t("err.archive_many", n=self._extracted_archives))
+                os.makedirs(parent, exist_ok=True)
+                os.mkdir(part)  # only this run's newly created folder may be removed on failure
+                part_created = True
                 if a.lower().endswith(".zip"):
                     self._unzip(a, part)
                 elif seven:
@@ -735,10 +761,12 @@ class Organizer:
                     raise RuntimeError(t("err.need_7zip"))
                 os.rename(part, out)
             except Cancelled:
-                shutil.rmtree(part, ignore_errors=True)  # our own fresh folder: half an extraction is useless
+                if part_created:
+                    shutil.rmtree(part, ignore_errors=True)
                 raise
             except Exception as e:
-                shutil.rmtree(part, ignore_errors=True)
+                if part_created:
+                    shutil.rmtree(part, ignore_errors=True)
                 self.errors.append(f"{os.path.basename(a)}: {e}")
                 continue
             self._write_log("extraido", aid or a, out)
@@ -753,8 +781,10 @@ class Organizer:
         self._extracted_bytes += total
         if self._extracted_members > MAX_MEMBERS:
             raise RuntimeError(t("err.archive_many", n=self._extracted_members))
-        if packed and total > 2 * (1 << 30) and total / packed > MAX_RATIO:
+        if packed and total > RATIO_MIN_BYTES and total / packed > MAX_RATIO:
             raise RuntimeError(t("err.archive_bomb"))
+        if self._extracted_bytes > MAX_RUN_EXTRACTED:
+            raise RuntimeError(t("err.archive_run_size"))
         if total > shutil.disk_usage(self.root).free - FREE_MARGIN:
             raise RuntimeError(t("err.no_space", gb=round(total / (1 << 30), 1)))
 
@@ -762,6 +792,9 @@ class Organizer:
         with zipfile.ZipFile(a) as z:
             infos = z.infolist()
             self._check_archive(sum(i.file_size for i in infos), len(infos), sum(i.compress_size for i in infos))
+            names = [os.path.normcase(os.path.normpath(i.filename.replace("/", os.sep))) for i in infos]
+            if len(names) != len(set(names)):
+                raise RuntimeError(t("err.archive_names"))
             for info in infos:
                 if self.cancel.is_set():
                     raise Cancelled()
@@ -770,14 +803,15 @@ class Organizer:
     def _un7z(self, seven, a, out):
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         listing = subprocess.run([seven, "l", "-slt", "-ba", a], capture_output=True, text=True, errors="replace",
-                                 creationflags=flags)
+                                 stdin=subprocess.DEVNULL, creationflags=flags)
         sizes = [int(m) for m in re.findall(r"^Size = (\d+)$", listing.stdout, re.M)]
         if listing.returncode != 0 or not sizes:  # can't see inside: don't extract blind
             raise RuntimeError(t("err.archive_list"))
         packed = sum(int(m) for m in re.findall(r"^Packed Size = (\d+)$", listing.stdout, re.M))
         self._check_archive(sum(sizes), len(sizes), packed)
         proc = subprocess.Popen([seven, "x", a, f"-o{out}", "-aos", "-y", "-bso0", "-bsp0", "-snl-"],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=flags)
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                creationflags=flags)
         while True:
             try:
                 err = proc.communicate(timeout=0.5)[1]
@@ -943,6 +977,10 @@ class Organizer:
         finally:
             look.save()
             _write_json(self._overrides_path, self.overrides)
+            for problem in look.problems:
+                msg = t("err.online_source", error=problem)
+                if msg not in self.errors:
+                    self.errors.append(msg)
 
     # ---------- BPM ----------
 
@@ -950,20 +988,56 @@ class Organizer:
         files = []
         for top in (NO_GENRE, OTHER):
             d = self.target_dir(top)
-            if os.path.isdir(d) and not self.left_alone(d):
-                files += [os.path.join(d, n) for n in os.listdir(d) if is_audio(n)]  # only loose ones
+            for d in (d, os.path.join(d, self.names["bpm_unknown"])):  # loose ones, and those nobody could measure yet
+                if os.path.isdir(d) and not self.left_alone(d):
+                    for n in os.listdir(d):
+                        p = os.path.join(d, n)
+                        if (is_audio(n) and os.path.isfile(p) and not os.path.islink(p)
+                                and not getattr(os.path, "isjunction", lambda _: False)(p) and not TEMP_COPY.search(n)):
+                            hit, value = self._cached_bpm(p)
+                            if os.path.basename(d) != self.names["bpm_unknown"] or not hit or value:
+                                files.append(p)
         return [p for p in files if self._in_scope(p) and not self.left_alone(p)]
+
+    def _cached_bpm(self, p):
+        try:
+            st = os.stat(p)
+            key = f"{st.st_mtime_ns}:{_content_fp(p, st.st_size)}"
+            if key in self._bpm_cache:
+                return True, self._bpm_cache[key]
+        except OSError:
+            pass
+        return False, None
+
+    def _measure_bpm(self, p):
+        hit, value = self._cached_bpm(p)
+        if not hit:
+            value = bpm_mod.bpm_of(p)
+            try:
+                st = os.stat(p)
+                self._bpm_cache[f"{st.st_mtime_ns}:{_content_fp(p, st.st_size)}"] = value
+            except OSError:
+                pass
+        return value
 
     def step_bpm(self):
         files = self._loose_unsorted()
         ex = ThreadPoolExecutor(4)
         try:
-            for done, (p, b) in enumerate(zip(files, ex.map(bpm_mod.bpm_of, files)), 1):
+            for done, (p, b) in enumerate(zip(files, ex.map(self._measure_bpm, files)), 1):
                 self._tick("bpm", done, len(files), os.path.basename(p))
-                if self.move(p, os.path.join(os.path.dirname(p), bpm_mod.bucket(b, self.names))):
+                here = os.path.dirname(p)
+                unknown = os.path.basename(here) == self.names["bpm_unknown"]
+                if unknown and not b:
+                    continue  # still unknown
+                if self.move(p, os.path.join(os.path.dirname(here) if unknown else here, bpm_mod.bucket(b, self.names))):
                     self.report["bpm_sorted"] += 1
         finally:
             ex.shutdown(wait=True, cancel_futures=True)  # on cancel: don't measure the rest
+            try:
+                _write_json(self._bpm_cache_path, {"version": BPM_CACHE_VERSION, "items": self._bpm_cache})
+            except OSError as e:
+                self.errors.append(f"{self._bpm_cache_path}: {e}")
 
     # ---------- tags ----------
 
@@ -1020,6 +1094,10 @@ class Organizer:
         finally:
             for src in sources:
                 src.save()
+                if getattr(src, "problem", ""):
+                    msg = t("err.online_source", error=src.problem)
+                    if msg not in self.errors:
+                        self.errors.append(msg)
         self.report = +self.report  # no zero lines in the summary
 
     def _find_cover(self, p, sources, site):
@@ -1045,20 +1123,24 @@ class Organizer:
         try:
             shutil.copy2(p, tmp)
             before = read_info(tmp)["duration"]
-            inside = {cover_digest(d): d for d in pictures(tmp)}
-            gone = [d for k, d in inside.items() if k in drop and remove_cover(tmp, k)]
+            records = picture_records(tmp)
+            gone = [r for r in records if cover_digest(base64.b64decode(r["data"])) in drop]
+            for digest in set(drop):
+                remove_cover(tmp, digest)
             left = len(pictures(tmp))
             data = None if left else data
             if not gone and not data:
                 return False
-            for d in gone:
-                keep = os.path.join(self.data, REMOVED_COVERS, cover_digest(d))
+            for record in reversed(gone):  # Undo reverses rows: covers are reinserted in their original order
+                packed = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                key = hashlib.sha1(packed).hexdigest()[:20] + ".json"
+                keep = os.path.join(self.data, REMOVED_COVERS, key)
                 if not os.path.exists(keep):
                     os.makedirs(os.path.dirname(keep), exist_ok=True)
                     with open(keep + ".tmp", "wb") as fh:
-                        fh.write(d)
+                        fh.write(packed)
                     os.replace(keep + ".tmp", keep)
-                rows.append(("capa_fora", p, cover_digest(d)))
+                rows.append(("capa_fora", p, key))
             if data:
                 rows.append(("capa", p, cover_digest(data)))
             for r in rows:
@@ -1077,8 +1159,7 @@ class Organizer:
                 self._write_log("falhou", a, b)  # not changed: Undo skips these entries
             raise
         finally:
-            if os.path.exists(tmp):
-                os.remove(tmp)
+            _remove_temp(tmp)
 
     def repeated_covers(self):
         """For 'Repeated covers': read-only look at every embedded image."""
@@ -1169,7 +1250,8 @@ class Organizer:
             self._finished = True  # not cancelled, no crash
         finally:
             try:
-                self.save_inventory()
+                if not (self.cancel.is_set() and not self._finished):
+                    self.save_inventory()
             except OSError as e:
                 self.errors.append(f"{self._inventory_path}: {e}")
             finally:
@@ -1286,6 +1368,8 @@ def _owns_quarantine(root):
     now; anything else is the user's.
     shortcut: one proven run is enough (older logs may be pruned), the other folders only need the run-id name."""
     qroot = os.path.join(root, QUARANTINE)
+    if os.path.islink(qroot) or getattr(os.path, "isjunction", lambda _: False)(qroot):
+        return False  # never follow a redirected quarantine outside the chosen library
     mark = os.path.join(qroot, QUARANTINE_MARK)
     if os.path.exists(mark):
         return True
@@ -1307,11 +1391,10 @@ def _log_quarantined_into(logs, run_id, run_dir):
     inside = os.path.normcase(run_dir) + os.sep
     for name in (run_id + ".csv", run_id + ".desfeito.csv"):
         try:
-            with open(os.path.join(logs, name), encoding="utf-8", newline="") as fh:
-                if any(r and r[0] == "quarentena" and len(r) > 2 and os.path.normcase(r[2]).startswith(inside)
-                       for r in csv.reader(fh)):
-                    return True
-        except (OSError, UnicodeDecodeError, csv.Error):
+            if any(r and r[0] == "quarentena" and len(r) > 2 and os.path.normcase(r[2]).startswith(inside)
+                   for r in _read_log_rows(os.path.join(logs, name))):
+                return True
+        except (OSError, csv.Error):
             continue
     return False
 
@@ -1326,7 +1409,7 @@ def _purge_quarantine(root, older_than_days=None):
     n = 0
     for d in os.listdir(qroot):
         p = os.path.join(qroot, d)
-        if not (RUN_DIR.match(d) and os.path.isdir(p)):
+        if not (RUN_DIR.match(d) and os.path.isdir(p)) or os.path.islink(p) or getattr(os.path, "isjunction", lambda _: False)(p):
             continue  # only the per-run folders the app made
         try:
             if limit is None or os.path.getmtime(p) < limit:
@@ -1345,13 +1428,15 @@ def _purge_quarantine(root, older_than_days=None):
 
 def prune_logs(data_dir):
     d = os.path.join(data_dir, "execucoes")
-    logs = sorted(f for f in os.listdir(d) if f.endswith(".csv"))
-    for f in logs[:-KEEP_LOGS]:
-        for extra in ("", ".feito"):
-            try:
-                os.remove(os.path.join(d, f + extra))
-            except OSError:
-                pass
+    logs = [f for f in os.listdir(d) if f.endswith(".csv")]
+    for group in ((f for f in logs if not f.endswith(".desfeito.csv")),
+                  (f for f in logs if f.endswith(".desfeito.csv"))):
+        for f in sorted(group, key=lambda f: _log_time_key(d, f))[:-KEEP_LOGS]:
+            for extra in ("", ".feito"):
+                try:
+                    os.remove(os.path.join(d, f + extra))
+                except OSError:
+                    pass
 
 
 def _remove_empty(top):
@@ -1373,12 +1458,11 @@ def _safe_restore(path, snap, run_id):
         restore(tmp, snap)
         check = read_info(tmp)
         # length 0 is allowed here: an AIFF put back to "no tags" reports 0 again, as it did before the run
-        if check["unreadable"] or (before and check["duration"] and abs(check["duration"] - before) > 0.5):
+        if check["unreadable"] or (before and abs(check["duration"] - before) > 0.5):
             raise RuntimeError(t("err.tag_check"))
         os.replace(tmp, path)
     finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        _remove_temp(tmp)
 
 
 def _safe_uncover(path, digest, run_id):
@@ -1391,18 +1475,23 @@ def _safe_uncover(path, digest, run_id):
         if not remove_cover(tmp, digest):
             return False  # not there any more (replaced by hand): nothing of ours to take out
         check = read_info(tmp)
-        if check["unreadable"] or (before and check["duration"] and abs(check["duration"] - before) > 0.5):
+        if check["unreadable"] or (before and abs(check["duration"] - before) > 0.5):
             raise RuntimeError(t("err.tag_check"))
         os.replace(tmp, path)
         return True
     finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        _remove_temp(tmp)
 
 
 def _safe_put_back(path, image, run_id):
     """Undo of a site cover taken out, on a copy that must still play before it replaces the track."""
-    if any(cover_digest(d) == cover_digest(image) for d in pictures(path)):
+    if isinstance(image, dict):
+        target = {k: v for k, v in image.items() if k not in ("ordinal", "position")}
+        have = sum({k: v for k, v in r.items() if k not in ("ordinal", "position")} == target
+                   for r in picture_records(path))
+        if have >= int(image.get("ordinal", 1)):
+            return
+    elif any(cover_digest(d) == cover_digest(image) for d in pictures(path)):
         return
     before = read_info(path)["duration"]
     tmp = f"{path}.ck-undo-{run_id}{os.path.splitext(path)[1]}"
@@ -1414,14 +1503,14 @@ def _safe_put_back(path, image, run_id):
             raise RuntimeError(t("err.tag_check"))
         os.replace(tmp, path)
     finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        _remove_temp(tmp)
 
 
 def _move_back(src, dst, errors, retry):
     """dst -> src; True when moved. retry[0] = True when trying again later could succeed."""
     if not os.path.exists(dst):
         errors.append(t("err.undo_missing", path=dst))
+        retry[0] = True
         return False
     if os.path.exists(src):
         errors.append(t("err.undo_conflict", path=src))
@@ -1437,17 +1526,32 @@ def _move_back(src, dst, errors, retry):
         return False
 
 
+def _log_time_key(runs_dir, f):
+    try:
+        st = os.stat(os.path.join(runs_dir, f))
+        # creation time: st_birthtime (Python 3.12+); st_ctime is creation time on older Windows Pythons only
+        return getattr(st, "st_birthtime_ns", None) or st.st_ctime_ns, f
+    except OSError:
+        return 0, f
+
+
 def _pending_logs(runs_dir):
     """Run logs not undone yet, oldest first. By creation time, not by name: run ids carry the local time, which
     jumps back an hour when summer time ends (the name breaks ties)."""
-    def key(f):
-        try:
-            st = os.stat(os.path.join(runs_dir, f))
-            # creation time: st_birthtime (Python 3.12+); st_ctime is creation time on older Windows Pythons only
-            return getattr(st, "st_birthtime_ns", None) or st.st_ctime_ns, f
-        except OSError:
-            return 0, f
-    return sorted((f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv")), key=key)
+    return sorted((f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv")),
+                  key=lambda f: _log_time_key(runs_dir, f))
+
+
+def _read_log_rows(path):
+    """Complete CSV rows from a log; a power-cut-truncated final UTF-8 character does not hide earlier work."""
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    try:
+        text = raw.decode("utf-8", "surrogatepass")
+    except UnicodeDecodeError as e:
+        end = raw.rfind(b"\n", 0, e.start) + 1
+        text = raw[:end].decode("utf-8", "surrogatepass") if end else ""
+    return [r for r in csv.reader(text.splitlines()) if r]
 
 
 def list_runs(root):
@@ -1457,10 +1561,11 @@ def list_runs(root):
     for f in reversed(_pending_logs(d)):
         kinds = Counter()
         try:
-            # only the first field (a plain word): no CSV parsing of the long tag snapshots, a 16k-track log stays fast
-            with open(os.path.join(d, f), "rb") as fh:
-                for line in fh:
-                    kinds[line.split(b",", 1)[0].decode("ascii", "replace").strip()] += 1
+            rows = _read_log_rows(os.path.join(d, f))
+            failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
+            for r in rows:
+                if r[0] != "falhou" and len(r) > 2 and (r[1], r[2]) not in failed:
+                    kinds[r[0]] += 1
         except OSError:
             continue
         out.append((f[:-4], kinds))
@@ -1540,8 +1645,7 @@ def _undo_last(root, progress, cancel, protected=()):
         return Counter({"undo_nothing": 1}), []
     path = os.path.join(runs_dir, runs[-1])
     run_id = runs[-1][:-4]
-    with open(path, encoding="utf-8") as fh:
-        rows = [r for r in csv.reader(fh) if r]
+    rows = _read_log_rows(path)
     done_path = path + ".feito"  # entries already undone by an earlier (partial) attempt
     try:
         with open(done_path, encoding="utf-8") as fh:
@@ -1549,13 +1653,16 @@ def _undo_last(root, progress, cancel, protected=()):
     except FileNotFoundError:
         done = set()
     rep, errors, retry = Counter(), [], [False]
+    blocked_tag_paths = set()
     failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
     kinds = ("tags", "quarentena", "mover", "extraido", "genero", "capa", "capa_fora")
     todo = [(i, r) for i, r in enumerate(rows) if r[0] in kinds and len(r) > 2 and (r[1], r[2]) not in failed
             and i not in done]
     overrides_path = os.path.join(data, "generos_corrigidos.json")
     overrides = _read_json(overrides_path, {})
-    extracted = set(_read_json(os.path.join(data, "extraidos.json"), []))
+    overrides = overrides if isinstance(overrides, dict) else {}
+    extracted_value = _read_json(os.path.join(data, "extraidos.json"), [])
+    extracted = set(extracted_value) if isinstance(extracted_value, list) else set()
     try:  # cancelled halfway: the entries already undone are kept on disk too
         with open(done_path, "a", encoding="utf-8") as done_fh:
             for n, (i, r) in enumerate(reversed(todo), 1):  # newest first: replays the chain backwards
@@ -1572,6 +1679,11 @@ def _undo_last(root, progress, cancel, protected=()):
                 if kind == "tags":
                     if not os.path.exists(a):
                         errors.append(t("err.undo_missing", path=a))
+                        retry[0] = True
+                    elif len(r) > 3 and snapshot(a) != r[3]:
+                        errors.append(t("err.undo_tags_changed", path=a))
+                        retry[0] = True
+                        blocked_tag_paths.add(os.path.normcase(a))
                     else:
                         try:
                             _safe_restore(a, b, run_id)
@@ -1583,6 +1695,7 @@ def _undo_last(root, progress, cancel, protected=()):
                 elif kind == "capa":  # the track had no cover before this run
                     if not os.path.exists(a):
                         errors.append(t("err.undo_missing", path=a))
+                        retry[0] = True
                     else:
                         try:
                             if _safe_uncover(a, b, run_id):
@@ -1594,10 +1707,12 @@ def _undo_last(root, progress, cancel, protected=()):
                 elif kind == "capa_fora":  # a site's cover taken out: put back
                     if not os.path.exists(a):
                         errors.append(t("err.undo_missing", path=a))
+                        retry[0] = True
                     else:
                         try:
                             with open(os.path.join(data, REMOVED_COVERS, b), "rb") as fh:
-                                image = fh.read()
+                                stored = fh.read()
+                            image = json.loads(stored.decode("utf-8")) if b.endswith(".json") else stored
                             _safe_put_back(a, image, run_id)
                             rep["undo_site_covers"] += 1
                             ok = True
@@ -1629,6 +1744,9 @@ def _undo_last(root, progress, cancel, protected=()):
                     rep["undo_extract"] += 1
                     ok = True
                 else:
+                    if os.path.normcase(b) in blocked_tag_paths:
+                        blocked_tag_paths.add(os.path.normcase(a))  # keep every earlier move in this track's chain pending
+                        continue
                     ok = _move_back(a, b, errors, retry)
                     if ok:
                         rep["undo_from_quarantine" if kind == "quarentena" else "undo_returned"] += 1
@@ -1645,7 +1763,7 @@ def _undo_last(root, progress, cancel, protected=()):
     legacy = sum(1 for r in rows if r[0] == "reciclagem")  # runs before the quarantine existed
     if legacy:
         rep["undo_in_trash"] = legacy
-    if not retry[0]:  # pending only when retrying can help (conflict, file in use); missing files never come back
+    if not retry[0]:  # conflicts, missing files and files in use keep the run pending for another attempt
         os.replace(path, path[:-4] + ".desfeito.csv")
         try:
             os.remove(done_path)

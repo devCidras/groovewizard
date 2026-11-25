@@ -40,18 +40,26 @@ def check_key(service, key, timeout=15):
             return "offline", f"HTTP {e.code}"
     except (OSError, http.client.HTTPException, ValueError) as e:
         return "offline", str(getattr(e, "reason", e))
+    if not isinstance(data, dict):
+        return "offline", "unexpected response"
     if service == "lastfm" and data.get("error"):
-        return ("invalid", "") if data["error"] in (10, 26) else ("offline", data.get("message", ""))
-    return "ok", data.get("username", "") if service == "discogs" else ""
+        detail = data.get("message", "")
+        return ("invalid", "") if data["error"] in (10, 26) else ("offline", detail if isinstance(detail, str) else "")
+    username = data.get("username", "")
+    return "ok", username if service == "discogs" and isinstance(username, str) else ""
 
 
 def folder_for(tag):
     """Online tag -> (folder, priority) or (None, None). 'electronic' is too generic to mean anything."""
+    import re
+    if not isinstance(tag, str):
+        return None, None
     n = tag.lower()
     if "electronic" in n:
         return None, None
     for i, (k, g) in enumerate(ONLINE_RULES):
-        if k in n:
+        pat = r"(?<!\w)" + r"[\s_-]+".join(re.escape(x) for x in k.split()) + r"(?!\w)"
+        if re.search(pat, n):
             return g, i
     return None, None
 
@@ -59,7 +67,12 @@ def folder_for(tag):
 def pick(tag_counts):
     """[(tag, count)] -> (count, priority, folder, tag) of the best mapped tag, or None."""
     best = None
-    for name, cnt in tag_counts:
+    for row in tag_counts if isinstance(tag_counts, list) else []:
+        if not isinstance(row, (list, tuple)) or len(row) != 2:
+            continue
+        name, cnt = row
+        if not isinstance(name, str) or not isinstance(cnt, (int, float)):
+            continue
         g, prio = folder_for(name)
         if g and (best is None or (cnt, -prio) > (best[0], -best[1])):
             best = (cnt, prio, g, name)
@@ -79,9 +92,14 @@ class Cached:
             self.cache = {}
         if not isinstance(self.cache, dict):
             self.cache = {}
+        self.disabled = False
+        self.problem = ""
 
     def fetch(self, url, headers):
-        for wait in (0, 5, 20, 60):
+        if self.disabled:
+            return None
+        last_error = "offline"
+        for wait in (0, 2, 10):
             delay = max(wait, self.interval - (time.time() - self.last))
             if self.cancel.wait(delay):
                 return None
@@ -89,16 +107,22 @@ class Cached:
             try:
                 with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
                     data = json.load(r)
-                if isinstance(data, dict) and data.get("error"):  # Deezer quota / Last.fm bad key, with a 200
+                if not isinstance(data, dict):
+                    self.disabled, self.problem = True, "unexpected JSON"
+                    return None
+                if data.get("error"):  # Deezer quota / Last.fm bad key, with a 200
                     return None
                 return data
             except urllib.error.HTTPError as e:
+                last_error = f"HTTP {e.code}"
                 if e.code == 404:
                     return {}  # really nothing there
                 if e.code not in (408, 429, 500, 502, 503, 504):
+                    self.disabled, self.problem = True, last_error
                     return None  # bad key or request: not cached as 'no result', asked again next time
-            except (OSError, http.client.HTTPException, ValueError):  # dropped connection, bad data, timeout
-                pass
+            except (OSError, http.client.HTTPException, ValueError) as e:  # dropped connection, bad data, timeout
+                last_error = str(getattr(e, "reason", e)) or type(e).__name__
+        self.disabled, self.problem = True, last_error
         return None  # failed: not cached, retried next run
 
     def save(self):
@@ -119,23 +143,33 @@ class Discogs(Cached):
 
     def tags(self, artist, title):
         k = f"{artist} | {title}".lower()
+        if k in self.cache and not isinstance(self.cache[k], list):
+            self.cache.pop(k)
         if k not in self.cache:
             q = urllib.parse.urlencode({"type": "release", "artist": artist, "track": title, "per_page": 10})
             r = self.fetch("https://api.discogs.com/database/search?" + q, self.h)
             if r is None:
                 return []
             c = {}
-            for rel in r.get("results", []):
-                for s in rel.get("style", []):
-                    c[s] = c.get(s, 0) + 1
+            results = r.get("results", [])
+            for rel in results if isinstance(results, list) else []:
+                if not isinstance(rel, dict):
+                    continue
+                styles = rel.get("style", [])
+                for s in styles if isinstance(styles, list) else []:
+                    if isinstance(s, str):
+                        c[s] = c.get(s, 0) + 1
             self.cache[k] = sorted(c.items(), key=lambda kv: -kv[1])
-        return self.cache[k]
+        return [x for x in self.cache[k] if isinstance(x, (list, tuple)) and len(x) == 2
+                and isinstance(x[0], str) and isinstance(x[1], (int, float))]
 
 
     def cover(self, artist, title):
         """URL of a cover for this track, '' if none: a release named after the track (its single) first, else any
         release it is on. Cached, like the genre search."""
         k = f"cover | {artist} | {title}".lower()
+        if k in self.cache and not isinstance(self.cache[k], str):
+            self.cache.pop(k)
         if k not in self.cache:
             q = urllib.parse.urlencode({"type": "release", "artist": artist, "track": title, "per_page": 10})
             r = self.fetch("https://api.discogs.com/database/search?" + q, self.h)
@@ -143,11 +177,13 @@ class Discogs(Cached):
                 return None  # failed: not cached, tried again next run
             nt = norm(title)
             # 'Artist - Release': only releases by this artist (a Various Artists compilation cover is not the track's)
-            ok = [x for x in r.get("results", []) if " - " in x.get("title", "")
+            results = r.get("results", [])
+            ok = [x for x in results if isinstance(x, dict) and isinstance(x.get("title"), str)
+                  and " - " in x.get("title", "")
                   and _same_artist(artist, x["title"].split(" - ", 1)[0])]
             ok.sort(key=lambda x: nt not in norm(x.get("title", "")))  # its own single first (stable)
-            self.cache[k] = next((x["cover_image"] for x in ok
-                                  if x.get("cover_image") and "spacer.gif" not in x["cover_image"]), "")
+            self.cache[k] = next((x["cover_image"] for x in ok if isinstance(x.get("cover_image"), str)
+                                  and x["cover_image"] and "spacer.gif" not in x["cover_image"]), "")
         return self.cache[k]
 
     def image(self, url, folder):
@@ -171,7 +207,18 @@ class Discogs(Cached):
         self.last = time.time()
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=30) as r:
-                data = r.read(5 * 1024 * 1024 + 1)
+                chunks, total = [], 0
+                while True:
+                    if self.cancel.is_set():
+                        return None
+                    chunk = r.read(min(1 << 16, 5 * 1024 * 1024 + 1 - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > 5 * 1024 * 1024:
+                        return None
+                data = b"".join(chunks)
         except (OSError, http.client.HTTPException, ValueError):
             return None
         if len(data) > 5 * 1024 * 1024 or not image_type(data):  # only real JPEG/PNG, never huge files
@@ -209,6 +256,8 @@ class Deezer(Cached):
     def cover(self, artist, title):
         """URL of the cover of the release this track is on, '' if no result matches artist and title."""
         k = f"{artist} | {title}".lower()
+        if k in self.cache and not isinstance(self.cache[k], str):
+            self.cache.pop(k)
         if k not in self.cache:
             base = _base_title(title)  # 'That Acid (X Extended Remix)' is listed as 'That Acid (X Remix)'
             r = self.fetch("https://api.deezer.com/search?" + urllib.parse.urlencode({"q": f"{artist} {base}", "limit": 15}),
@@ -216,8 +265,11 @@ class Deezer(Cached):
             if r is None:
                 return None  # failed: not cached, tried again next run
             words = set(norm(title).split())
-            hits = [x for x in r.get("data", []) if _same_artist(artist, x.get("artist", {}).get("name", ""))
-                    and base and _base_title(x.get("title", "")) == base]
+            rows = r.get("data", [])
+            hits = [x for x in rows if isinstance(x, dict) and isinstance(x.get("artist"), dict)
+                    and isinstance(x.get("title"), str)
+                    and _same_artist(artist, x["artist"].get("name", ""))
+                    and base and _base_title(x["title"]) == base] if isinstance(rows, list) else []
             # same song: the version whose title shares most words with ours (the remix, not the original)
             hit = max(hits, key=lambda x: len(words & set(norm(x.get("title", "")).split())), default=None)
             self.cache[k] = (hit or {}).get("album", {}).get("cover_big", "") or ""
@@ -233,14 +285,25 @@ class LastFM(Cached):
 
     def tags(self, artist):
         k = artist.lower()
+        if k in self.cache and not isinstance(self.cache[k], list):
+            self.cache.pop(k)
         if k not in self.cache:
             q = urllib.parse.urlencode({"method": "artist.gettoptags", "artist": artist, "api_key": self.key,
                                         "format": "json", "autocorrect": 1})
             r = self.fetch("https://ws.audioscrobbler.com/2.0/?" + q, {"User-Agent": UA})
             if r is None:
                 return []
-            self.cache[k] = [(t["name"], int(t.get("count", 0))) for t in r.get("toptags", {}).get("tag", [])[:15]]
-        return self.cache[k]
+            top = r.get("toptags", {})
+            rows = top.get("tag", []) if isinstance(top, dict) else []
+            out = []
+            for tag in rows[:15] if isinstance(rows, list) else []:
+                try:
+                    if isinstance(tag, dict) and isinstance(tag.get("name"), str):
+                        out.append((tag["name"], int(tag.get("count", 0))))
+                except (TypeError, ValueError):
+                    continue
+            self.cache[k] = out
+        return [x for x in self.cache[k] if isinstance(x, (list, tuple)) and len(x) == 2]
 
 
 class MusicBrainz(Cached):
@@ -252,23 +315,32 @@ class MusicBrainz(Cached):
 
     def tags(self, artist):
         k = norm(artist)
+        if k in self.cache and not isinstance(self.cache[k], list):
+            self.cache.pop(k)
         if k not in self.cache:
             r = self.fetch("https://musicbrainz.org/ws/2/artist/?fmt=json&limit=5&query="
                            + urllib.parse.quote(f'artist:"{artist}"'), self.h)
             if r is None:
                 return []
-            hit = next((a for a in r.get("artists", []) if norm(a["name"]) == k and a.get("score", 0) >= 90), None)
+            artists = r.get("artists", [])
+            hit = next((a for a in artists if isinstance(a, dict) and isinstance(a.get("name"), str)
+                        and norm(a["name"]) == k and isinstance(a.get("score", 0), (int, float))
+                        and a.get("score", 0) >= 90 and isinstance(a.get("id"), str)), None) if isinstance(artists, list) else None
             out = []
             if hit:
                 full = self.fetch(f"https://musicbrainz.org/ws/2/artist/{hit['id']}?fmt=json&inc=genres+tags", self.h)
                 if full is None:
                     return []
                 seen = {}
-                for x in full.get("genres", []) + full.get("tags", []):
-                    seen[x["name"]] = max(seen.get(x["name"], 0), x.get("count", 0))
+                genres, tags = full.get("genres", []), full.get("tags", [])
+                rows = (genres if isinstance(genres, list) else []) + (tags if isinstance(tags, list) else [])
+                for x in rows:
+                    if isinstance(x, dict) and isinstance(x.get("name"), str):
+                        count = x.get("count", 0) if isinstance(x.get("count", 0), (int, float)) else 0
+                        seen[x["name"]] = max(seen.get(x["name"], 0), count)
                 out = sorted(seen.items(), key=lambda kv: -kv[1])
             self.cache[k] = out
-        return self.cache[k]
+        return [x for x in self.cache[k] if isinstance(x, (list, tuple)) and len(x) == 2]
 
 
 class Lookup:
@@ -302,3 +374,7 @@ class Lookup:
         for s in (self.dg, self.lf, self.mb):
             if s:
                 s.save()
+
+    @property
+    def problems(self):
+        return [s.problem for s in (self.dg, self.lf, self.mb) if s and s.problem]

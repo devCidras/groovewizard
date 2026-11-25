@@ -1,7 +1,7 @@
 ; Instalador Windows (Inno Setup 6). Gerado por build.ps1 depois do PyInstaller.
 #define AppName "GrooveWizard"
 #ifndef AppVersion
-  #define AppVersion "1.7.0"
+  #define AppVersion "1.8.0"
 #endif
 
 [Setup]
@@ -39,6 +39,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Type: files; Name: "{app}\Cratekeeper.exe"
 Type: files; Name: "{autoprograms}\Cratekeeper.lnk"
 Type: files; Name: "{autodesktop}\Cratekeeper.lnk"
+; remove bundled DLLs/modules no longer shipped by a newer version
+Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
 ; dist\GrooveWizard already holds LICENSE.txt (GPL-3.0) and licencas\ (third-party licenses + source offer)

@@ -22,12 +22,14 @@ def _read():
         return data if isinstance(data, dict) else {}
     except FileNotFoundError:
         return {}
-    except (OSError, ValueError):  # damaged: kept as config.json.estragado, settings start over
+    except ValueError:  # damaged JSON: kept as config.json.estragado, settings start over
         try:
             os.replace(PATH, PATH + ".estragado")
         except OSError:
             pass
         return {}
+    except OSError:
+        return None  # transient lock / antivirus: never rename or overwrite the existing config
 
 
 def _write(cfg):
@@ -86,18 +88,22 @@ def _keep(name, value):
 
 
 def load():
-    cfg = _read()
-    known = {f.name for f in fields(Options)}
+    cfg = _read() or {}
+    defaults = Options()
+    known = {f.name: getattr(defaults, f.name) for f in fields(Options)}
     saved = cfg.get("opcoes") if isinstance(cfg.get("opcoes"), dict) else {}
     keys = cfg.get("chaves") if isinstance(cfg.get("chaves"), dict) else {}
-    opts = Options(**{k: v for k, v in saved.items() if k in known})
-    if not isinstance(opts.protected, list):
-        opts.protected = []
-    return opts, {k: _open_sealed(v, k) for k, v in keys.items()}
+    valid = {k: v for k, v in saved.items() if k in known and type(v) is type(known[k])}
+    if "protected" in valid:
+        valid["protected"] = [p for p in valid["protected"] if isinstance(p, str)]
+    opts = Options(**valid)
+    return opts, {k: _open_sealed(v, k) for k, v in keys.items() if isinstance(v, str)}
 
 
 def save(opts, keys):
     cfg = _read()
+    if cfg is None:
+        return False  # do not replace a temporarily unreadable config with defaults
     for k, v in keys.items():
         if v:
             _UNREADABLE.pop(k, None)  # replaced by a new key: the old unreadable one is gone for good
@@ -105,13 +111,31 @@ def save(opts, keys):
     cfg.update(opcoes=asdict(opts), chaves={k: (_UNREADABLE[k] if not v and k in _UNREADABLE else _seal(v))
                                             for k, v in keys.items()})
     _write(cfg)
+    return True
+
+
+def clear_key(name):
+    """Explicitly forget a key, including a sealed value this Windows profile cannot decrypt."""
+    cfg = _read()
+    if cfg is None:
+        return False
+    _UNREADABLE.pop(name, None)
+    keys = cfg.get("chaves") if isinstance(cfg.get("chaves"), dict) else {}
+    keys.pop(name, None)
+    cfg["chaves"] = keys
+    _write(cfg)
+    return True
 
 
 def get(key, default=None):
-    return _read().get(key, default)
+    cfg = _read()
+    return cfg.get(key, default) if cfg is not None else default
 
 
 def put(key, value):
     cfg = _read()
+    if cfg is None:
+        return False
     cfg[key] = value
     _write(cfg)
+    return True

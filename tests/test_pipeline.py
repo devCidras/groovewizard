@@ -6,7 +6,15 @@ import tempfile
 import wave
 import zipfile
 
-TMP = tempfile.mkdtemp(prefix="organizador-teste-")
+_FIXED_TMP = os.environ.get("GROOVEWIZARD_TEST_TMP")
+TMP = os.path.abspath(_FIXED_TMP) if _FIXED_TMP else tempfile.mkdtemp(prefix="organizador-teste-")
+os.makedirs(TMP, exist_ok=True)
+if _FIXED_TMP:  # managed sandboxes may only allow descendants of a directory that already existed
+    for _name in os.listdir(TMP):
+        if _name == ".gitkeep":
+            continue
+        _p = os.path.join(TMP, _name)
+        shutil.rmtree(_p, ignore_errors=True) if os.path.isdir(_p) else os.remove(_p)
 os.environ["APPDATA"] = os.path.join(TMP, "appdata")  # keep caches/logs out of the real profile
 os.environ["LOCALAPPDATA"] = os.path.join(TMP, "localappdata")  # %TEMP% lives under it; libraries there are refused
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,8 +26,7 @@ import organizador.pipeline as pl  # noqa: E402
 from organizador.tags import genre_of, normalize_genre, raw_genre, strip_sites, title_key  # noqa: E402
 
 trashed = []
-pl.send2trash = lambda p: (trashed.append(p), os.remove(p))  # no real Recycle Bin in tests
-pl.bpm_mod.librosa = None  # silence has no tempo; result must not depend on librosa being installed
+pl.send2trash = lambda p: (trashed.append(p), shutil.rmtree(p) if os.path.isdir(p) else os.remove(p))
 
 
 def make(path, seconds=1, artist=None, title=None, genre=None, album=None):
@@ -45,6 +52,8 @@ def test_rules():
     assert strip_sites("Rockin' (Extended Mix) - www.djsoundtop.com") == "Rockin' (Extended Mix)"
     assert strip_sites("djsoundtop.com") == ""
     assert strip_sites("Crazy (Extended Mix) [4DJsonline.com]") == "Crazy (Extended Mix)"
+    assert strip_sites("Dance - Kiss.Me") == "Dance - Kiss.Me"
+    assert strip_sites("Rock - www.site.ru - Extended") == "Rock - Extended"
     assert strip_sites("https://electronicfresh.com") == ""
     assert strip_sites("Iglesias, Sharing-DB.club") == "Iglesias"  # site last in a list of artists: no comma left
     assert strip_sites(" Groove ") == " Groove " and strip_sites("A, B") == "A, B"  # no site: untouched
@@ -52,7 +61,8 @@ def test_rules():
     assert strip_sites("Artist, Love.me") == "Artist, Love.me" and strip_sites("A, djsoundtop.com") == "A"
     for real in ("Love.me (Extended Mix)", "Back.to Life", "Toolroom Records", "Original Mix", "Kiss.Me", "Toolroom.Club"):
         assert strip_sites(real) == real, real
-    assert title_key("Go Back feat. Julia (Extended Mix)") == title_key("Go Back (Original Mix)")
+    assert title_key("Go Back feat. Julia (Extended Mix)") != title_key("Go Back (Original Mix)")
+    assert title_key("Go Back (Extended Mix)") == title_key("Go Back (Original Mix)")
     assert title_key("Ocean (Marlon Hoffstadt Remix)") != title_key("Ocean")
 
 
@@ -150,10 +160,10 @@ def test_rename_packs():
     assert "Fisher - Losing It (Extended Mix).wav" in names, names
     assert "AC DC - What Now.wav" in names, names
     assert "Bob - New One (Club Mix).wav" in names, names
-    # unsure / taken: the original name, only without the track number
-    assert "sem tags.wav" in names and "c-taken.wav" in names, names
+    # unsure / taken: only an unambiguous number followed by whitespace comes off; "03-c" may be an artist
+    assert "sem tags.wav" in names and "03-c-taken.wav" in names, names
     assert "x_minha.wav" in names, "a track already in the library is never renamed"
-    assert rep["renamed"] == 5, rep  # 3 Artist - Title + 2 that only lost their track number
+    assert rep["renamed"] == 4, rep  # 3 Artist - Title + one that only lost an unambiguous track number
     assert os.path.exists(taken)
     rep, errs = pl.undo_last(root)
     assert not errs, errs
@@ -652,7 +662,8 @@ def test_site_covers():
     from PySide6.QtCore import QBuffer, QIODevice
     from PySide6.QtGui import QColor, QImage, QPainter
     from organizador import capas
-    from organizador.tags import cover_digest, pictures, put_back_cover, set_cover
+    from mutagen.id3 import APIC
+    from organizador.tags import cover_digest, picture_records, pictures, put_back_cover, set_cover
 
     def image(color, box, side=300, fmt="JPG"):
         im = QImage(side, side, QImage.Format_RGB888)
@@ -681,6 +692,10 @@ def test_site_covers():
     a, b, c, d, e = (make(os.path.join(here, n + " - Song.wav"), i + 1, n, "Song", "Techno") for i, n in enumerate("ABCDE"))
     for p, pic in ((a, ad), (b, ad_small), (c, logo), (d, ad), (e, ad)):
         set_cover(p, pic)
+    fa = WAVE(a)
+    fa.tags.delall("APIC")
+    fa.tags.add(APIC(encoding=1, mime="image/jpeg", type=4, desc="Original back cover", data=ad))
+    fa.save(v2_version=3)
     put_back_cover(d, logo)  # D: the ad and a real cover
     answer = {"A": "u", "B": "", "E": None}  # found / nothing there / no internet
 
@@ -709,13 +724,15 @@ def test_site_covers():
         org = pl.Organizer(opts)
         assert org.preview()["site_covers_pending"] == 4
         assert {p for k, p, _ in org.plan if k == "site_cover"} == {a, b, d, e}
-        before = {p: [cover_digest(x) for x in pictures(p)] for p in (a, b, c, d, e)}
+        before = {p: picture_records(p) for p in (a, b, c, d, e)}
         rep, errs = pl.Organizer(opts, keys={"discogs_token": "x"}).run()
         assert not errs and (rep["site_covers_out"], rep["covers_added"], rep["site_covers_later"]) == (3, 1, 1), (rep, errs)
         assert [pictures(p) for p in (a, b, c, d, e)] == [[found], [], [logo], [logo], [ad]]
         rep, errs = pl.undo_last(root)
         assert not errs and rep["undo_site_covers"] == 3, (rep, errs)
-        assert {p: sorted(cover_digest(x) for x in pictures(p)) for p in before} == {p: sorted(v) for p, v in before.items()}
+        after_records = {p: picture_records(p) for p in before}
+        assert after_records == before, [(p, before[p], after_records[p]) for p in before if before[p] != after_records[p]]
+        assert WAVE(a).tags.version[1] == 3
         # unticked in the list: left alone
         pl.Organizer(opts, skip=[a, b, d]).run()
         assert pictures(a) == [ad]
@@ -735,11 +752,56 @@ def test_site_covers():
         raise urllib.error.HTTPError("u", code[0], "", {}, None)
     urllib.request.urlopen = fail
     try:
-        dz = online.Deezer(TMP)
         for code[0], answer in ((400, None), (403, None), (404, "")):
+            dz = online.Deezer(os.path.join(TMP, f"http-{code[0]}"))
+            os.makedirs(dz.path.rsplit(os.sep, 1)[0], exist_ok=True)
             assert dz.cover("A", f"T{code[0]}") == answer, code
     finally:
         urllib.request.urlopen = real_open
+
+
+def test_bpm():
+    from organizador import bpm
+
+    def clicks(path, tempo, seconds=48):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        beat = round(44100 * 60 / tempo)
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(44100)
+            w.writeframes((b"\xff\x3f\x01\xc0" * 300 + bytes(beat * 2 - 1200)) * (seconds * 44100 // beat))
+        return path
+
+    root = os.path.join(TMP, "bpm")
+    for tempo in (98, 122, 127, 128, 174):
+        got = bpm.measure(clicks(os.path.join(TMP, "bpm-src", f"{tempo}.wav"), tempo))
+        assert got and abs(got - tempo) <= .1, (tempo, got)
+    assert bpm.measure(make(os.path.join(TMP, "bpm-src", "mudo.wav"), 30)) is None  # silence
+    assert bpm.measure(clicks(os.path.join(TMP, "bpm-src", "curta.wav"), 125, 5)) is None  # too short to tell
+    bad = os.path.join(TMP, "bpm-src", "bad.mp3")
+    open(bad, "wb").write(b"not really audio")
+    assert bpm.measure(bad) is None
+    # tracks left in 'unknown' by older versions are measured now; what still has no beat stays there
+    unknown = os.path.join(root, "Sem Genero", "BPM desconhecido")
+    old = clicks(os.path.join(unknown, "A - Old.wav"), 127)
+    mute = make(os.path.join(unknown, "B - Mute.wav"), 9)
+    out = clicks(os.path.join(root, "Outros", "BPM desconhecido", "C - Out.wav"), 130)
+    rep, errs = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=True, dedupe=False)).run()
+    assert not errs and rep["bpm_sorted"] == 2, (rep, errs)
+    moved = os.path.join(root, "Sem Genero", "BPM 122-128", "A - Old.wav")
+    assert not os.path.exists(old) and os.path.exists(moved)
+    assert not os.path.exists(out), os.listdir(root)
+    assert os.path.exists(mute)
+    real_measure, calls = bpm.measure, []
+    bpm.measure = lambda p: calls.append(p) or real_measure(p)
+    try:
+        again = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=True, dedupe=False))
+        assert again.preview().get("bpm_pending", 0) == 0
+        again.run()
+        assert not calls, "a permanently unknown track was measured again"
+    finally:
+        bpm.measure = real_measure
+    rep, errs = pl.undo_last(root)
+    assert not errs and os.path.exists(old) and os.path.exists(out), errs
 
 
 def test_review_fixes():
@@ -753,6 +815,7 @@ def test_review_fixes():
     assert artist_title("808 State - Pacific.wav", bare) == ("808 State", "Pacific")
     assert artist_title("01. Fisher - Losing It.wav", bare) == ("Fisher", "Losing It")
     assert artists_key("Mr. X") != artists_key("Mr") and artists_key("A x B") == artists_key("B, A")
+    assert artists_key("Ft. Lauderdale") != artists_key("Lauderdale")
     assert bpm.fold(float("nan")) is None and bpm.fold(float("inf")) is None
     # half a pack left by a crash is never sorted; a '_' root folder is left alone; a pack dropped in _entrada stays
     make(os.path.join(root, pl.INBOX, "P" + pl.STAGING, "half.wav"), 2, "H", "Half", "House")
@@ -780,6 +843,354 @@ def test_unticked_on_first_run_stay_known():
     assert os.path.exists(old), "an old track unticked on the first run became 'new' and was moved"
 
 
+def test_audit_names_config_and_online():
+    import builtins
+    import io
+    import json
+    from unittest.mock import patch
+    from mutagen.id3 import WXXX
+    from organizador import config, online
+    from organizador.tags import (artist_title, clean_file_name, clean_sites, genre_from_folder, norm, pack_file_name,
+                                  read_info, snapshot)
+
+    assert title_key("Ready (feat. Ramona)") != title_key("Ready (feat. Sam)")
+    assert title_key("Anthem (1995)") != title_key("Anthem (2003)")
+    assert title_key("Lost - Extended Mix") == title_key("Lost (Extended Mix)")
+    assert norm("Ma") != norm("Mà") and norm("ไม่") != norm("ไม้")
+    assert artist_title("Artist - Oh.Organic.wav", {"artist": "", "title": ""}) == ("Artist", "Oh.Organic")
+    for name in ("2-Step - Sample.mp3", "50.Cent - Candy Shop.mp3", "808_State - Pacific.mp3"):
+        assert clean_file_name(name) is None, name
+    assert clean_file_name("01. Artist - Track.mp3") == "Artist - Track.mp3"
+    assert online.folder_for("Lighthouse Family") == (None, None)
+    assert online.folder_for("Breakdance") == (None, None)
+    assert online.folder_for("Nu-Disco")[0] == "Nu Disco - Disco"
+    assert online.folder_for("Techno House")[0] == "Techno House"
+    assert genre_from_folder(r"X:\_entrada\Deep_House_Vol1\a.wav", "Deep_House_Vol1") == "Deep House"
+    assert pack_file_name("Dave (Edit Master) - Tune.wav", {"artist": "Dave", "title": "Tune"}) == "Dave - Tune.wav"
+
+    tagged = make(os.path.join(TMP, "url-tags", "A.wav"), 2, "A", "T", "House")
+    f = WAVE(tagged)
+    f.tags.add(WXXX(encoding=3, desc="publisher", url="https://label.example/release"))
+    f.tags.add(WXXX(encoding=3, desc="djsoundtop", url="https://djsoundtop.com/x"))
+    f.save(v2_version=3)
+    clean_sites(tagged)
+    f = WAVE(tagged)
+    assert f.tags.version[1] == 3
+    urls = [x.url for x in f.tags.getall("WXXX")]
+    assert urls == ["https://label.example/release"], urls
+    assert snapshot(tagged)
+
+    old_path = config.PATH
+    config.PATH = os.path.join(TMP, "cfg", "config.json")
+    os.makedirs(os.path.dirname(config.PATH), exist_ok=True)
+    with open(config.PATH, "w", encoding="utf-8") as fh:
+        json.dump({"opcoes": {"root": 5, "dedupe": "false", "protected": ["ok", 2]},
+                   "chaves": {"discogs_token": 5, "lastfm_api_key": "x"}}, fh)
+    opts, keys = config.load()
+    assert opts.root == "" and opts.dedupe is True and opts.protected == ["ok"] and keys == {"lastfm_api_key": "x"}
+    with patch.object(builtins, "open", side_effect=OSError("busy")):
+        assert config._read() is None
+    assert os.path.exists(config.PATH) and not os.path.exists(config.PATH + ".estragado")
+    with open(config.PATH, "w", encoding="utf-8") as fh:
+        json.dump({"chaves": {"discogs_token": "dpapi:AAAA"}}, fh)
+    assert config.load()[1]["discogs_token"] == ""
+    assert config.clear_key("discogs_token") and "discogs_token" not in config._read()["chaves"]
+    config.PATH = old_path
+
+    class Response(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+    source = online.Cached(os.path.join(TMP, "odd-cache.json"), 0, cancel=type("C", (), {"wait": lambda self, n: False})())
+    with patch.object(online.urllib.request, "urlopen", return_value=Response(b"[]")):
+        assert source.fetch("https://example.invalid", {}) is None and source.disabled
+    calls = []
+    source = online.Cached(os.path.join(TMP, "offline-cache.json"), 0, cancel=type("C", (), {"wait": lambda self, n: False})())
+    def offline(*args, **kwargs):
+        calls.append(1)
+        raise OSError("offline")
+    with patch.object(online.urllib.request, "urlopen", side_effect=offline):
+        assert source.fetch("https://example.invalid", {}) is None
+        assert source.fetch("https://example.invalid", {}) is None
+    assert len(calls) == 3, "an offline source was retried for every track"
+
+
+def test_audit_pipeline_and_undo():
+    import stat
+    from unittest.mock import patch
+    from organizador.tags import read_info
+
+    # A destination that is a regular file is a per-track warning, not a run crash.
+    root = os.path.join(TMP, "dest-conflict")
+    os.makedirs(root)
+    open(os.path.join(root, "House"), "wb").write(b"mine")
+    src = make(os.path.join(root, "A.wav"), 2, "A", "T", "Tech House")
+    rep, errs = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+    assert errs and os.path.exists(src)
+
+    # Cancellation does not start the expensive full inventory rebuild.
+    root = os.path.join(TMP, "cancel-inventory")
+    make(os.path.join(root, "A.wav"), 1)
+    cancel = __import__("threading").Event()
+    cancel.set()
+    org = pl.Organizer(pl.Options(root=root, online=False), cancel=cancel)
+    try:
+        org.run()
+        raise AssertionError("cancel was ignored")
+    except pl.Cancelled:
+        pass
+    assert not os.path.exists(org._inventory_path)
+
+    # A failed cross-drive source deletion rolls back the completed copy (no duplicate is left behind).
+    root = os.path.join(TMP, "cross-drive")
+    src = make(os.path.join(root, "src", "A.wav"), 1)
+    dst_dir = os.path.join(root, "dst")
+    org = pl.Organizer(pl.Options(root=root, online=False))
+    real_rename, real_remove = pl.os.rename, pl.os.remove
+    rename_calls = [0]
+    def cross_rename(a, b):
+        rename_calls[0] += 1
+        if rename_calls[0] == 1:
+            raise OSError(__import__("errno").EXDEV, "cross drive")
+        return real_rename(a, b)
+    def locked_remove(path):
+        if path == src:
+            raise PermissionError("locked")
+        return real_remove(path)
+    with patch.object(pl.os, "rename", side_effect=cross_rename), patch.object(pl.os, "remove", side_effect=locked_remove):
+        assert org.move(src, dst_dir) is None
+    assert os.path.exists(src) and not os.path.exists(os.path.join(dst_dir, "A.wav"))
+    org._log.close()
+    assert pl.list_runs(root)[0][1].get("mover", 0) == 0
+
+    # A read-only destination may reject the edit, but no full .ck- copy is left behind.
+    root = os.path.join(TMP, "readonly")
+    ro = make(os.path.join(root, "House", "House", "A.wav"), 2, "A", "T", "House", "djsoundtop.com")
+    os.chmod(ro, stat.S_IREAD)
+    try:
+        pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+        assert not [n for n in os.listdir(os.path.dirname(ro)) if ".ck-" in n]
+    finally:
+        os.chmod(ro, stat.S_IWRITE)
+
+    # Windows accepts an unpaired UTF-16 surrogate in a file name; logging it must not abort the run.
+    root = os.path.join(TMP, "surrogate")
+    odd = make(os.path.join(root, "House", "House", "bad\ud800.wav"), 1, "A", "T", "House", "djsoundtop.com")
+    rep, errs = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+    assert rep["sites_cleaned"] == 1 and os.path.exists(odd), errs
+
+    # Case-insensitive member collisions reject the pack instead of silently losing one track.
+    root = os.path.join(TMP, "zip-collision")
+    os.makedirs(root)
+    sample = make(os.path.join(TMP, "zip-src", "x.wav"), 1)
+    pack = os.path.join(root, "pack.zip")
+    with zipfile.ZipFile(pack, "w") as z:
+        z.write(sample, "Song.wav")
+        z.write(sample, "song.wav")
+    rep, errs = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+    assert errs and os.path.exists(pack) and rep["archives_extracted"] == 0
+
+    # A directory disguised with an audio extension and a legitimate '.ck-' name are handled correctly.
+    root = os.path.join(TMP, "loose")
+    os.makedirs(os.path.join(root, "Sem Genero", "crate.mp3", "inside"))
+    legit = make(os.path.join(root, "Sem Genero", "Artist - Track.ck-edit.wav"), 1)
+    org = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=True, dedupe=False))
+    assert legit in list(org.audio_files()) and os.path.join(root, "Sem Genero", "crate.mp3") not in org._loose_unsorted()
+
+    # A temporarily missing result keeps Undo pending and can be retried.
+    root = os.path.join(TMP, "undo-missing")
+    original = make(os.path.join(root, "loose", "A.wav"), 2, "A", "T", "Techno")
+    pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+    moved = next(p for p in pl.Organizer(pl.Options(root=root)).audio_files() if os.path.basename(p) == "A.wav")
+    away = moved + ".away"
+    os.rename(moved, away)
+    _, errs = pl.undo_last(root)
+    assert errs and pl.list_runs(root)
+    os.rename(away, moved)
+    _, errs = pl.undo_last(root)
+    assert not errs and os.path.exists(original)
+
+    # Later user tag edits are never overwritten by Undo.
+    root = os.path.join(TMP, "undo-tags")
+    track = make(os.path.join(root, "House", "House", "A.wav"), 2, "A", "Before", "House", "djsoundtop.com")
+    pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+    f = WAVE(track)
+    f.tags.delall("TIT2")
+    f.tags.add(TIT2(encoding=3, text=["User edit"]))
+    f.save()
+    _, errs = pl.undo_last(root)
+    assert errs and read_info(track)["title"] == "User edit" and pl.list_runs(root)
+
+    # A truncated final UTF-8 row leaves all complete rows readable.
+    log = os.path.join(TMP, "truncated.csv")
+    with open(log, "wb") as fh:
+        fh.write('mover,"a","b"\nquarentena,"ç'.encode("utf-8")[:-1])
+    assert pl._read_log_rows(log) == [["mover", "a", "b"]]
+
+
+def test_audit_7z_update_and_dialogs():
+    import hashlib
+    import io
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QApplication, QPushButton
+    from organizador import atualizacoes, gui
+    from organizador.janelas import HistoryDialog, PlanDialog
+
+    class Listed:
+        returncode, stdout = 0, "Size = 10\nPacked Size = 5\n"
+    class Proc:
+        returncode = 0
+        def communicate(self, timeout=None): return (b"", b"")
+    seen = {}
+    def fake_run(*args, **kwargs):
+        seen["run"] = kwargs
+        return Listed()
+    def fake_popen(*args, **kwargs):
+        seen["popen"] = kwargs
+        return Proc()
+    with patch.object(pl.subprocess, "run", side_effect=fake_run), \
+         patch.object(pl.subprocess, "Popen", side_effect=fake_popen):
+        org = object.__new__(pl.Organizer)
+        org.cancel = type("C", (), {"is_set": lambda self: False})()
+        org._extracted_members = org._extracted_bytes = 0
+        org.root = TMP
+        org._un7z("7z.exe", "x.7z", "out")
+    assert seen["run"]["stdin"] is pl.subprocess.DEVNULL and seen["popen"]["stdin"] is pl.subprocess.DEVNULL
+    org._extracted_members = org._extracted_bytes = 0
+    try:
+        org._check_archive(int(1.9 * (1 << 30)), 1, 1024)
+        raise AssertionError("a sub-2GB compression bomb was accepted")
+    except RuntimeError:
+        pass
+
+    payload = b"installer"
+    class Download(io.BytesIO):
+        headers = {"Content-Length": str(len(payload))}
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def geturl(self): return "https://github.com/x/setup.exe"
+    with patch.object(atualizacoes.urllib.request, "urlopen", return_value=Download(payload)):
+        try:
+            atualizacoes.download("https://github.com/x/setup.exe", "0" * 64)
+            raise AssertionError("wrong installer hash accepted")
+        except ValueError:
+            pass
+    class JsonList(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+    with patch.object(atualizacoes.urllib.request, "urlopen", return_value=JsonList(b"[]")):
+        assert atualizacoes.check() is None
+
+    app = QApplication.instance() or QApplication([])
+    plan = PlanDialog([("move", "C:\\x.wav", "C:\\y.wav")], "C:\\")
+    assert plan.run_btn.isDefault()
+    history = HistoryDialog([("20260101-000000-x", {"mover": 1})])
+    undo = next(b for b in history.findChildren(QPushButton) if b.text() == pl.t("history.undo"))
+    assert undo.isDefault()
+    called = []
+    fake = type("W", (), {"shutdown_toggle": type("T", (), {"isChecked": lambda self: True})()})()
+    with patch.object(gui, "shutdown_pc", side_effect=lambda n: called.append(n)):
+        gui.Window._maybe_shutdown(fake, "run", ["error"])
+    assert not called
+    window = gui.Window()
+    window._plan = [("move", os.path.join(TMP, "a.wav"), os.path.join(TMP, "b.wav"))]
+    window.log.setPlainText("kept log")
+    window.build()  # same rebuild used by a language change
+    assert not window.btn_plan.isHidden() and window.log.toPlainText() == "kept log"
+    plan.close(), history.close(), window.close()
+
+
+def test_deep_audit_regressions():
+    from unittest.mock import patch
+    from organizador.tags import duration, read_info, restore, snapshot
+
+    # Untagged audio still has a duration; same-name recordings of 2 and 30 seconds are not duplicates.
+    root = os.path.join(TMP, "untagged-durations")
+    paths = []
+    for folder, seconds in (("Sem Genero", 2), (os.path.join("Sem Genero", "BPM desconhecido"), 30)):
+        p = os.path.join(root, folder, "A - Track.wav")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with wave.open(p, "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(8000)
+            w.writeframes(bytes(16000 * seconds))
+        assert duration(p) == read_info(p)["duration"] == seconds
+        paths.append(p)
+    rep, errs = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False,
+                                       write_tags=False, clean_sites=False)).run()
+    assert not errs and rep["dups_trashed"] == 0 and all(os.path.exists(p) for p in paths), (rep, errs)
+
+    # Undo must reject a copy that remains readable but has lost all of its audio.
+    p = make(os.path.join(TMP, "undo-duration", "A.wav"), 2, "A", "T", "House")
+    def broken_restore(temp, _):
+        with wave.open(temp, "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(8000)
+            w.writeframes(b"")
+    with patch.object(pl, "restore", side_effect=broken_restore):
+        try:
+            pl._safe_restore(p, snapshot(p), "audit")
+            raise AssertionError("Undo accepted a zero-length replacement")
+        except RuntimeError:
+            pass
+    assert read_info(p)["duration"] == 2
+
+    # A user's similarly named folder is never treated as an interrupted extraction.
+    root = os.path.join(TMP, "staging-owned")
+    stage = os.path.join(root, pl.INBOX, "personal.gw-parte")
+    os.makedirs(stage)
+    sentinel = os.path.join(stage, "keep.txt")
+    with open(sentinel, "w") as fh:
+        fh.write("mine")
+    with zipfile.ZipFile(os.path.join(root, pl.INBOX, "pack.zip"), "w") as z:
+        z.writestr("inside.txt", "pack")
+    org = pl.Organizer(pl.Options(root=root, online=False))
+    org.step_extract()
+    assert not org.errors and os.path.exists(sentinel)
+
+    # A quarantine redirected through a junction cannot move files outside the library.
+    root = os.path.join(TMP, "quarantine-junction")
+    qroot = os.path.join(root, pl.QUARANTINE)
+    os.makedirs(qroot)
+    open(os.path.join(qroot, pl.QUARANTINE_MARK), "w").close()
+    source = make(os.path.join(root, "A.wav"))
+    org = pl.Organizer(pl.Options(root=root, online=False))
+    with patch.object(pl.os.path, "isjunction", side_effect=lambda path: os.path.normcase(path) == os.path.normcase(qroot),
+                      create=True):
+        try:
+            org.trash(source)
+            raise AssertionError("a redirected quarantine was accepted")
+        except RuntimeError:
+            pass
+    assert os.path.exists(source)
+
+    # Completed logs must not displace the last pending Undo log from the retention window.
+    data = os.path.join(TMP, "prune-pending")
+    runs = os.path.join(data, "execucoes")
+    os.makedirs(runs)
+    for name in ("1.csv", "2.desfeito.csv", "3.desfeito.csv"):
+        open(os.path.join(runs, name), "w").close()
+    with patch.object(pl, "KEEP_LOGS", 2), patch.object(pl, "_log_time_key", side_effect=lambda d, f: int(f[0])):
+        pl.prune_logs(data)
+    assert os.path.exists(os.path.join(runs, "1.csv"))
+
+    # If later tag edits prevent Undo, its earlier move must wait too; a retry can then succeed.
+    root = os.path.join(TMP, "undo-edited-moved")
+    source = make(os.path.join(root, "loose", "A.wav"), 2, "A", "Before", "Tech House", "djsoundtop.com")
+    rep, errs = pl.Organizer(pl.Options(root=root, online=False, bpm_folders=False, dedupe=False)).run()
+    assert not errs, errs
+    moved = next(p for p in pl.Organizer(pl.Options(root=root)).audio_files() if os.path.basename(p) == "A.wav")
+    after = snapshot(moved)
+    f = WAVE(moved)
+    f.tags.delall("TIT2")
+    f.tags.add(TIT2(encoding=3, text=["User edit"]))
+    f.save(v2_version=3)
+    _, errors = pl.undo_last(root)
+    assert errors and os.path.exists(moved) and not os.path.exists(source) and pl.list_runs(root), errors
+    _, errors = pl.undo_last(root)
+    assert errors and os.path.exists(moved) and not any("não encontrado" in e for e in errors), errors
+    restore(moved, after)
+    _, errors = pl.undo_last(root)
+    assert not errors and os.path.exists(source) and not pl.list_runs(root), errors
+
+
 if __name__ == "__main__":
     try:
         test_rules()
@@ -801,6 +1212,18 @@ if __name__ == "__main__":
         test_covers()
         test_review_fixes()
         test_site_covers()
+        test_bpm()
+        test_audit_names_config_and_online()
+        test_audit_pipeline_and_undo()
+        test_audit_7z_update_and_dialogs()
+        test_deep_audit_regressions()
         print("ok")
     finally:
-        shutil.rmtree(TMP, ignore_errors=True)
+        if os.environ.get("GROOVEWIZARD_TEST_TMP"):
+            for name in os.listdir(TMP):
+                if name == ".gitkeep":
+                    continue
+                p = os.path.join(TMP, name)
+                shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else os.remove(p)
+        else:
+            shutil.rmtree(TMP, ignore_errors=True)

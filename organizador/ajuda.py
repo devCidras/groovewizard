@@ -32,8 +32,8 @@ HELP = {
   <li><b>Fontes online</b> (opcional): cola as chaves grátis do Discogs e do Last.fm. Ajudam a descobrir o género
       das faixas que não o têm.</li>
   <li><b>Passos:</b> liga só o que queres que a app faça.</li>
-  <li><b>Pré-visualizar</b> mostra o que vai mudar, <b>sem mexer em nada</b>. Depois aparece <b>Ver lista</b> (também com as capas que vai pôr),
-      com cada faixa: podes desmarcar as que não queres que sejam tocadas.</li>
+  <li><b>Pré-visualizar</b> não mexe em nada e mostra as mudanças que consegue prever. Não inclui faixas ainda dentro
+      dos packs, resultados online nem limpeza de sites dentro das tags. Depois aparece <b>Ver lista</b>.</li>
   <li><b>Organizar</b> faz as mudanças. Podes <b>Cancelar</b> a meio: o que já foi feito fica feito.</li>
   <li>No fim, no <b>rekordbox</b>: <i>Ficheiro › Gerir faixas inexistentes › Auto Relocate</i> (escolhe a pasta) e
       depois, na Coleção, <i>Ctrl+A › botão direito › Recarregar tag</i>.</li>
@@ -46,10 +46,11 @@ HELP = {
 <h3>O que a app faz às faixas</h3>
 <ul>
   <li><b>Género:</b> cada faixa vai para a pasta do seu género (ex.: <code>House\\Tech House</code>). Se a faixa não
-      disser o género, usa o nome do pack; se não houver nada, vai para <code>Sem Genero</code>, separada por BPM.</li>
+      disser o género, usa o nome do pack; se não houver nada, vai para <code>Sem Genero</code>, separada por BPM.
+      Se a faixa não traz o BPM, a app mede-o (exceto M4A); sem batida clara vai para <code>BPM desconhecido</code>.</li>
   <li><b>Repetidas:</b> se tens a mesma faixa duas vezes, fica a melhor (a Extended, senão a mais longa). A outra vai
-      para a <b>quarentena</b>: uma pasta escondida onde fica 30 dias, para a poderes recuperar.</li>
-  <li><b>Outros:</b> géneros com poucas faixas (Pop, Rock…) ficam juntos na pasta <code>Outros</code>.</li>
+      para a <b>quarentena</b>. Por defeito, Radio Edit e Club Mix contam como a mesma faixa que Original/Extended.</li>
+  <li><b>Outros:</b> géneros de uma lista fixa (Pop, Hardstyle, Blues, Dub…) ficam juntos em <code>Outros</code>.</li>
   <li><b>Tags:</b> grava o género dentro da faixa e tira nomes de sites (ex.: <code>www.djsoundtop.com</code>) do
       título, álbum e comentários.</li>
   <li><b>Capas</b> (opção <i>Pôr capas</i>): as faixas sem capa recebem a capa do lançamento (Deezer e, com a chave,
@@ -66,8 +67,8 @@ HELP = {
   <li>As faixas dos packs mudam de nome logo. Outras faixas novas (que puseste soltas na pasta) só depois de
       confirmares, porque podem já estar no rekordbox.</li>
   <li>As <b>faixas que já tinhas</b> nunca mudam de nome, a não ser que ligues <i>Limpar o nome das faixas
-      antigas</i>. Nesse caso a app pergunta antes; depois tens de as importar outra vez no rekordbox (perdes os
-      cues dessas faixas).</li>
+      antigas</i>. Nesse caso a app pergunta antes; depois pode ser preciso usar Auto Relocate. Confirma os cues no
+      teu programa de DJ.</li>
   <li>Dica: organiza <b>antes</b> de importares as faixas novas no rekordbox.</li>
 </ul>
 <h3>Opções úteis</h3>
@@ -109,8 +110,8 @@ HELP = {
   <li><b>Online sources</b> (optional): paste your free Discogs and Last.fm keys. They help find the genre of tracks
       that don't have one.</li>
   <li><b>Steps:</b> turn on only what you want the app to do.</li>
-  <li><b>Preview</b> shows what will change, <b>without touching anything</b>. Then <b>See list</b> (also with the cover art it will add) shows every
-      track: you can untick the ones you don't want touched.</li>
+  <li><b>Preview</b> changes nothing and shows what it can predict. It excludes tracks still inside archives, online
+      results and website cleanup inside tags. Then <b>See list</b> lets you untick tracks.</li>
   <li><b>Organize</b> makes the changes. You can <b>Cancel</b> halfway: what's done stays done.</li>
   <li>Afterwards, in <b>rekordbox</b>: <i>File › Manage Missing Files › Auto Relocate</i> (pick the folder), then in
       the Collection <i>Ctrl+A › right-click › Reload Tag</i>.</li>
@@ -123,10 +124,11 @@ HELP = {
 <h3>What the app does to your tracks</h3>
 <ul>
   <li><b>Genre:</b> each track goes to the folder of its genre (e.g. <code>House\\Tech House</code>). If the track has
-      no genre, the pack name is used; with nothing at all it goes to <code>No Genre</code>, split by BPM.</li>
+      no genre, the pack name is used; with nothing at all it goes to <code>No Genre</code>, split by BPM.
+      If a track doesn't have its BPM, the app measures it (except M4A); with no clear beat it goes to <code>BPM unknown</code>.</li>
   <li><b>Duplicates:</b> if you have the same track twice, the best one stays (the Extended, else the longest). The
-      other goes to <b>quarantine</b>: a hidden folder where it's kept 30 days so you can get it back.</li>
-  <li><b>Other:</b> genres with few tracks (Pop, Rock…) go together in the <code>Other</code> folder.</li>
+      other goes to <b>quarantine</b>. By default Radio Edit and Club Mix count as the same track as Original/Extended.</li>
+  <li><b>Other:</b> genres on a fixed list (Pop, Hardstyle, Blues, Dub…) go together in <code>Other</code>.</li>
   <li><b>Tags:</b> saves the genre inside the track and removes website names (e.g. <code>www.djsoundtop.com</code>)
       from the title, album and comments.</li>
   <li><b>Cover art</b> (option <i>Add cover art</i>): tracks without a cover get the release's cover (Deezer and, with
@@ -143,7 +145,7 @@ HELP = {
   <li>Tracks from packs are renamed right away. Other new tracks (that you dropped in the folder) only after you
       confirm, because they may already be in rekordbox.</li>
   <li><b>Tracks you already had</b> never change name, unless you turn on <i>Clean up old tracks' names</i>.
-      Then the app asks first; afterwards you have to import them again in rekordbox (their cues are lost).</li>
+      Then the app asks first; afterwards you may need Auto Relocate. Check the cues in your DJ software.</li>
   <li>Tip: organize <b>before</b> importing new tracks into rekordbox.</li>
 </ul>
 <h3>Useful options</h3>
@@ -187,7 +189,7 @@ ABOUT = {
 <h3>Desenvolvido por</h3>
 <p><b>{a}</b> — <a href="{r}">{rs}</a></p>
 <h3>Construído com</h3>
-<p class="muted">Python · PySide6 (Qt) · mutagen · Send2Trash · librosa (opcional)<br>
+<p class="muted">Python · PySide6 (Qt) · mutagen · Send2Trash · numpy · soundfile (libsndfile)<br>
    Dados de géneros: Discogs, Last.fm e MusicBrainz.<br>
    Este programa não está associado ao rekordbox, Serato, Beatport, Discogs, Last.fm ou MusicBrainz.</p>
 <h3>Licença</h3>
@@ -201,7 +203,7 @@ ABOUT = {
 <h3>Developed by</h3>
 <p><b>{a}</b> — <a href="{r}">{rs}</a></p>
 <h3>Built with</h3>
-<p class="muted">Python · PySide6 (Qt) · mutagen · Send2Trash · librosa (optional)<br>
+<p class="muted">Python · PySide6 (Qt) · mutagen · Send2Trash · numpy · soundfile (libsndfile)<br>
    Genre data: Discogs, Last.fm and MusicBrainz.<br>
    This program is not affiliated with rekordbox, Serato, Beatport, Discogs, Last.fm or MusicBrainz.</p>
 <h3>License</h3>

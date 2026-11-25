@@ -18,6 +18,12 @@ licenses and attributions are listed in `Qt-codigo-de-terceiros.txt`. The exact 
 | PySide6 / Shiboken6 (Qt for Python) | 6.12.0 | LGPL-3.0 (`LGPL-3.0.txt` + `LICENSE` GPL-3.0) | https://code.qt.io/cgit/pyside/pyside-setup.git/ |
 | Qt 6 (Core, Gui, Widgets, Svg) | 6.12.0 | LGPL-3.0 (`LGPL-3.0.txt`) | https://download.qt.io/official_releases/qt/ |
 | Send2Trash | 2.2.0 | BSD-3-Clause (`Send2Trash-BSD-3-Clause.txt`) | https://github.com/arsenetar/send2trash |
+| numpy (com/with OpenBLAS) | 2.4.4 | BSD-3-Clause e outras / and others (`numpy-LICENSE.txt`) | https://github.com/numpy/numpy |
+| soundfile | 0.14.0 | BSD-3-Clause (`soundfile-BSD-3-Clause.txt`) | https://github.com/bastibe/python-soundfile |
+| libsndfile (com/with mpg123, LAME, FLAC, Ogg, Vorbis, Opus) | 1.2.2 | LGPL-2.1 (libsndfile, mpg123, LAME: `libsndfile-LGPL-2.1.txt`); o resto / the rest: `libsndfile-codigo-de-terceiros.txt` | https://github.com/libsndfile/libsndfile |
+| cffi | 2.0.0 | ver/see `cffi-LICENSE.txt` | https://github.com/python-cffi/cffi |
+| pycparser | 3.0 | BSD-3-Clause (`pycparser-BSD-3-Clause.txt`) | https://github.com/eliben/pycparser |
+| typing_extensions | 4.15.0 | PSF-2.0 (`typing_extensions-PSF-2.0.txt`) | https://github.com/python/typing_extensions |
 | Python | ver `VERSOES.txt` | PSF License (`Python-PSF.txt`) | https://www.python.org/downloads/source/ |
 | PyInstaller (bootloader) | 6.22.3 | GPL-2.0 with bootloader exception (`PyInstaller-GPL-2.0-bootloader-exception.txt`) | https://github.com/pyinstaller/pyinstaller |
 | Microsoft Visual C++ Runtime | — | Microsoft redistributable | — |
@@ -36,12 +42,12 @@ replaced by the user with compatible modified versions. The installer only ships
 O código-fonte completo do GrooveWizard de cada versão está no GitHub, na tag correspondente
 (https://github.com/devCidras/groovewizard/releases), juntamente com `build.ps1` e `requirements.txt`; as versões exatas
 de cada build estão em `VERSOES.txt`, dentro da instalação. Durante pelo menos três anos após cada versão, qualquer pessoa pode pedir uma cópia do código-fonte
-correspondente das bibliotecas GPL/LGPL incluídas (mutagen, PySide6/Shiboken6, Qt) abrindo uma *issue* no repositório;
+correspondente das bibliotecas GPL/LGPL incluídas (mutagen, PySide6/Shiboken6, Qt, libsndfile, mpg123, LAME) abrindo uma *issue* no repositório;
 o pedido é atendido sem custo além do eventual meio físico.
 
 The complete GrooveWizard source of every version is on GitHub at the matching tag, together with `build.ps1` and
 `requirements.txt`; the exact versions of each build are in `VERSOES.txt` inside the installation. For at least three years after each release, anyone may request a
-copy of the corresponding source of the bundled GPL/LGPL components (mutagen, PySide6/Shiboken6, Qt) by opening an
+copy of the corresponding source of the bundled GPL/LGPL components (mutagen, PySide6/Shiboken6, Qt, libsndfile, mpg123, LAME) by opening an
 issue in the repository; it is provided at no charge beyond any physical medium.
 
 ## Marcas / Trademarks

@@ -23,9 +23,9 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 
 1. **Descompacta os packs** que descarregaste (`.zip`, `.rar`, `.7z`, mesmo packs dentro de packs). Para `.rar` e `.7z` é preciso o [7-Zip](https://7-zip.org).
 2. **Arruma por género**: cada faixa vai para a pasta do seu género (ex.: `House/Tech House`). Se a faixa não disser o género, usa o nome do pack (ex.: "Best New Hard Techno" → `Techno/Hard Techno`). Se não houver nada, vai para `Sem Genero`.
-3. **Tira as repetidas**: se tens a mesma faixa duas vezes, fica a melhor (a Extended, senão a mais longa, senão a de melhor qualidade). A outra vai para a quarentena durante 30 dias. Remixes diferentes não contam como repetidas.
+3. **Tira as repetidas**: se tens a mesma faixa duas vezes, fica a melhor. Por defeito, Radio Edit e Club Mix contam como a mesma faixa que Original/Extended; remixes identificados como diferentes ficam.
 4. **Procura o género online** das faixas que não o têm (Discogs, Last.fm e, se quiseres, MusicBrainz). É uma estimativa, não uma garantia.
-5. **Separa por BPM** as faixas sem género (`BPM 122-128`, `BPM 128-135`, …).
+5. **Separa por BPM** as faixas sem género (`BPM 122-128`, `BPM 128-135`, …). Se a faixa não traz o BPM, a app mede-o no áudio.
 6. **Limpa as tags**: grava o género dentro da faixa (o rekordbox / Serato passam a mostrá-lo) e tira nomes de sites como `www.djsoundtop.com` do título, álbum e comentários.
 7. **Limpa os nomes das faixas novas**: tira o site e o número de faixa do nome do ficheiro (`05. Artista - Título` → `Artista - Título`) e, se quiseres, dá o nome `Artista - Título (Extended Mix)`. As faixas dos packs mudam logo; outras faixas novas só depois de confirmares. As que já tinhas não mudam de nome (o rekordbox deixaria de as encontrar), a não ser que ligues a opção para as faixas antigas, que pergunta antes.
 8. **Agrupa géneros parecidos**: `House/Tech House`, `Techno/Hard Techno`, `Melodic & Indie/…`, `Bass & Breaks/…`, `Dance & Mainstage/…`.
@@ -37,6 +37,8 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 **Formatos de áudio:** MP3, FLAC, AIFF/AIF, WAV e M4A.
 
 ## Capturas
+
+Imagens da interface 1.8.0 com dados ilustrativos; não foi aberta nenhuma biblioteca de música para as criar.
 
 | A organizar | No fim |
 |---|---|
@@ -50,21 +52,21 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 
 ## Proteções
 
-- **Pré-visualizar** mostra o que vai mudar, sem mexer em nada. **Ver lista** mostra-o faixa a faixa e deixa-te desmarcar as faixas em que não queres mexer. (Não consegue prever as faixas ainda dentro dos packs nem os resultados da procura online.)
+- **Pré-visualizar** não mexe em nada e mostra as mudanças que consegue prever. Não inclui faixas ainda dentro dos packs, resultados online nem limpeza de sites dentro das tags.
 - **Desfazer…** mostra as últimas organizações e volta atrás até à que escolheres: as faixas regressam ao sítio, as repetidas saem da quarentena e as tags voltam ao que eram. O que não conseguir repor (apagado ou mudado à mão entretanto) aparece numa lista.
-- **Quarentena**: as repetidas vão para uma pasta escondida (`_quarentena`) dentro da biblioteca. O botão **Ver quarentena** abre-a. Ficam lá 30 dias e depois vão para a Reciclagem (ou já, com **Esvaziar quarentena**).
+- **Quarentena**: as repetidas vão para uma pasta escondida (`_quarentena`). Depois de 30 dias, a próxima organização manda-as para a Reciclagem (ou já, com **Esvaziar quarentena**).
 - As tags são gravadas primeiro numa cópia, que é verificada antes de substituir a faixa. Ficheiros estragados (que não se conseguem ler) não são mexidos. No fim, as pastas que ficaram vazias são apagadas.
 - Recusa pastas perigosas (disco inteiro, pasta do utilizador, Windows, Program Files, AppData) e não deixa duas janelas organizar a mesma biblioteca.
 - Pastas da pasta principal cujo nome começa por `_` (por exemplo `_Backup`) e atalhos de pasta (junções) são ignorados: a app nunca sai da biblioteca.
 - Os packs são descompactados para uma pasta temporária e só ficam com o nome final quando terminam; se o PC desligar a meio, o pack é descompactado outra vez na próxima organização.
-- Um pack que puseres à mão na pasta de entrada fica lá depois de descompactado, a não ser que ligues **Apagar os packs depois de descompactar**.
+- Um pack que puseres à mão na pasta de entrada fica lá depois de descompactado, a não ser que ligues **Mandar packs para a quarentena depois de descompactar**.
 
 ## Como usar
 
 1. Descarrega `GrooveWizard-<versão>-setup.exe` em [Releases](../../releases/latest) e confirma o ficheiro (ver [Verificar o download](#verificar-o-download)). O instalador não tem assinatura digital, por isso o Windows SmartScreen pode avisar.
 2. Na primeira vez escolhe o idioma e aceita os termos.
 3. Escolhe a pasta das músicas.
-4. (Recomendado) cola as chaves grátis e carrega em **Verificar**:
+4. (Recomendado) cola as chaves grátis e carrega em **Verificar**. **Limpar** apaga uma chave guardada:
    - Discogs: <https://www.discogs.com/settings/developers> → *Generate new token*
    - Last.fm: <https://www.last.fm/api/account/create> (só precisas da *API key*)
 5. **Fecha o rekordbox/Serato**, carrega em **Pré-visualizar** e depois em **Organizar**. Para deixar a correr de noite, liga **Desligar PC no fim**: se a organização terminar sem erros, o PC desliga-se (com 60 s para cancelar). Se houver um erro ou cancelares, fica ligado.
@@ -76,12 +78,12 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 
 - Windows 10 ou 11. O instalador já inclui o Python; não é preciso instalar nada além do 7-Zip (só para `.rar`/`.7z`).
 - Espaço livre: o que os packs ocupam depois de descompactados, mais 1 GB de margem.
-- Internet só é precisa para a procura online e para o aviso de versão nova.
+- Internet só é precisa para a procura de géneros ou capas online e para o aviso de versão nova.
 - **Não mexe nas bases de dados do rekordbox ou do Serato** (playlists, cues, beat grids): só move ficheiros e altera tags. Depois de organizar, é preciso voltar a localizar os ficheiros no programa de DJ. O fluxo está documentado para o rekordbox; no Serato não foi testado.
 - A deteção de repetidas e a procura online são estimativas: revê a pré-visualização e, se tiveres dúvidas, a pasta `_quarentena` antes de a esvaziar.
-- No instalador, o BPM vem só da tag; faixas sem BPM na tag vão para `BPM desconhecido`.
+- O BPM das faixas sem género vem da tag; se não houver, a app tenta medi-lo no áudio. Faixas sem batida clara e M4A sem BPM na tag vão para `BPM desconhecido`.
 - Cancelar a meio deixa feito o que já foi feito (e pode ser desfeito).
-- Na primeira organização com a versão 1.5.0 a app lê um pedaço de cada faixa para a reconhecer depois (16 mil faixas num disco rígido: uns 5 minutos, uma só vez).
+- Na primeira organização com a versão 1.5.0 ou posterior a app lê um pedaço de cada faixa para a reconhecer depois; numa biblioteca grande pode demorar mais, uma só vez.
 - Desinstalar não apaga as definições em `%APPDATA%\GrooveWizard`.
 
 ## Perguntas frequentes
@@ -98,7 +100,7 @@ Ajuda completa dentro da app (botão **Ajuda** ou F1).
 
 ## Privacidade
 
-- As chaves ficam em `%APPDATA%\GrooveWizard\config.json`, encriptadas com o Windows (DPAPI) sempre que o Windows o permite; só o teu utilizador neste PC as consegue ler. São enviadas apenas ao próprio serviço (Discogs ou Last.fm), na procura online e quando carregas em **Verificar**.
+- As chaves ficam em `%APPDATA%\GrooveWizard\config.json`, encriptadas com o Windows (DPAPI) quando disponível. Se o DPAPI falhar, ficam em texto simples nesse ficheiro. São enviadas apenas ao próprio serviço.
 - Na procura online, o Discogs recebe o artista e o título; o Last.fm e o MusicBrainz recebem o artista. Com **Pôr capas** ou **Trocar capas de sites**, o Deezer (e o Discogs, se tiveres a chave) recebe o artista e o título das faixas sem capa (ou com capa de site), e as capas descarregadas ficam guardadas em `%APPDATA%\GrooveWizard\bibliotecas\`.
 - Ao abrir, a app pergunta ao GitHub se há uma versão nova. Como em qualquer pedido na internet, o GitHub vê o teu IP. Isto acontece sempre, para avisar de cada versão nova.
 - Caches (artistas e títulos pesquisados), registos e o histórico para desfazer ficam em `%APPDATA%\GrooveWizard\bibliotecas\`, **fora** da pasta das músicas, para não aparecerem se a partilhares no Soulseek/Nicotine+. Se a app falhar, o erro fica em `%APPDATA%\GrooveWizard\erros.log`.
@@ -125,7 +127,6 @@ python app.py
 
 - Testes: `python tests/test_pipeline.py` (também correm no GitHub a cada push, com build e arranque do `.exe`).
 - Teste com dados reais (só lê a biblioteca, trabalha numa cópia): `python tests/teste_real.py D:\Musica D:\groovewizard-teste 150`
-- Medir o BPM no áudio das faixas sem BPM na tag: `pip install librosa` (opcional; não vai no instalador).
 - Gerar o `.exe` e o instalador: `powershell -File build.ps1` → `dist\GrooveWizard\` e `dist\GrooveWizard-<versão>-setup.exe` (precisa do [Inno Setup 6](https://jrsoftware.org/isinfo.php)).
 - Géneros, sinónimos de tags ("Afro House" → House), regras pelo nome dos packs e pastas-mãe: [`organizador/regras.py`](organizador/regras.py). Textos da interface (PT/EN): [`organizador/i18n.py`](organizador/i18n.py).
 - Problemas e sugestões: abre uma [issue](../../issues). Problemas de segurança: reporta em privado em [Security → Report a vulnerability](../../security/advisories/new), não numa issue pública.
@@ -142,21 +143,21 @@ python app.py
 **What it does:**
 - Unpacks the packs you download (zip/rar/7z, packs inside packs too; rar/7z need [7-Zip](https://7-zip.org)).
 - Puts each track in the folder of its genre (from the track's genre, else from the pack name).
-- Removes duplicates: the best copy stays (the Extended, else the longest); the other goes to quarantine for 30 days.
+- Removes duplicates: the best copy stays. By default Radio Edit and Club Mix count as the same track as Original/Extended; identified remixes stay separate.
 - Looks up missing genres online (Discogs, Last.fm, optionally MusicBrainz) — an estimate, not a guarantee.
-- Splits tracks without a genre by BPM and saves the genre inside each track.
+- Splits tracks without a genre by BPM (measured from the audio when the track doesn't have it) and saves the genre inside each track.
 - Removes website names (e.g. `www.djsoundtop.com`) from tags, and website names and track numbers (`05. `) from new tracks' file names; can name new tracks `Artist - Title (Extended Mix)`. Tracks from packs change right away, other new tracks after you confirm; tracks you already had keep their name unless you turn on the option for old tracks (it asks first).
 - Optionally adds cover art to tracks without one (Deezer, and Discogs with the key); existing covers are never replaced. *Replace site covers* (option) takes out site ads and generic covers (e.g. the Beatport logo) and looks for the real one; *See repeated covers…* lets you tick the ones from new sites.
 - Protected folders are never touched; *Only new tracks* sorts only what arrived since last time; *Report* lists tracks with problems without changing anything.
 - Formats: MP3, FLAC, AIFF/AIF, WAV, M4A.
 
-**Safeguards:** *Preview* changes nothing and *See list* shows every change track by track, so you can untick tracks. *Undo…* goes back to any recent organize: tracks return to where they were, duplicates come out of quarantine and tags go back to what they were. Removed tracks wait 30 days in a hidden `_quarentena` folder before going to the Recycle Bin. Tags are written to a checked copy first. Dangerous folders (whole drive, user folder, Windows) are refused. Root folders starting with `_` (e.g. `_Backup`) and folder junctions are skipped, so the app never leaves the library; packs are unpacked to a temporary folder and only get their real name once complete.
+**Safeguards:** *Preview* changes nothing, but cannot show tracks still in packs, online results or site cleanup inside tags. *Undo…* goes back to recent organize runs. After 30 days, the next organize run sends old quarantine folders to the Recycle Bin. Tags are written to a checked copy first. Dangerous folders (whole drive, user folder, Windows, Program Files and AppData) are refused.
 
-**Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check**, close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*: the PC shuts down (60 s to cancel) only if the run finishes without errors. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
+**Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check** (*Clear* removes a saved key), close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*: the PC shuts down (60 s to cancel) only if the run finishes without errors. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
 
-**Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics: review the preview and the quarantine. The installer reads BPM from tags only. Uninstalling keeps `%APPDATA%\GrooveWizard`.
+**Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics. Tracks without a clear beat and M4A without a BPM tag go to `BPM unknown`. Uninstalling keeps `%APPDATA%\GrooveWizard`.
 
-**Privacy:** API keys are DPAPI-encrypted when Windows allows it and are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. With *Add cover art* or *Replace site covers*, Deezer (and Discogs with the key) receives artist and title of tracks without a cover. At start-up the app asks GitHub for the latest version (GitHub sees your IP; always on, so every new version is announced). Caches, logs and undo history live in `%APPDATA%\GrooveWizard`, outside the music folder; crashes are written to `%APPDATA%\GrooveWizard\erros.log`. The SHA-256 in each release proves integrity (the file is the one published), not authorship: the installer is unsigned, so download only from this repository's Releases. Nothing is sent to the authors.
+**Privacy:** API keys are DPAPI-encrypted when available; if DPAPI fails they remain plain text in `config.json`. They are sent only to their own service. Discogs receives artist and title; Last.fm and MusicBrainz receive the artist. Cover searches send artist and title to Deezer (and Discogs with a key). Nothing is sent to the authors.
 
 **From source:** `pip install -r requirements.txt && python app.py`. Tests: `python tests/test_pipeline.py`. Bugs and ideas: open an [issue](../../issues). Security problems: report privately via [Security → Report a vulnerability](../../security/advisories/new), not in a public issue.
 

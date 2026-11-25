@@ -1,5 +1,6 @@
 """Reading and writing tags (mutagen), plus the name parsing used by dedupe and online lookup."""
 import base64
+import copy
 import os
 import pickle
 import re
@@ -21,9 +22,10 @@ LIST_SEP = re.compile(r"[;,|]")
 VERSION = re.compile(r"[\(\[]\s*(extended|original|radio|club)?\s*(mix|edit|version|extended)\s*[\)\]]", re.I)
 # strict mode: only Original/Extended are the same arrangement; Radio Edit / Club Mix stay separate tracks
 VERSION_STRICT = re.compile(r"[\(\[]\s*(extended|original)\s*(mix|version)?\s*[\)\]]", re.I)
-JUNK = re.compile(r"[\(\[]?\s*(www\.\S+|\S+\.(com|org|net))\s*[\)\]]?|\[whoplaymusic\]|\(\d{4}\)|\(\d+\)$", re.I)
-# "01. ", "1A - 145 - ", "[9A, 130] ", "01 " ; never "808 State", "50 Cent" (no separator after the number)
-LEADING_NUM = re.compile(r"^\s*(\[[^\]]*\]\s*)?(\d+[A-Za-z]?\s*(?:[-._)](?!\d)|\s-\s)\s*)*(0\d\s+)?")
+JUNK = re.compile(r"[\(\[]?\s*(www\.\S+|\S+\.(com|org|net)\b)\s*[\)\]]?|\[whoplaymusic\]", re.I)
+# "01. ", "1A - 145 - ", "[9A, 130] ", "01 " ; never "2-Step", "50.Cent" or "808_State".
+_NUMBER_PREFIX = r"(?:\d{1,3}[A-Za-z]?(?:\s+-\s+|[._)]\s+)|0\d\s+)"
+LEADING_NUM = re.compile(r"^\s*(\[[^\]]*\]\s*)?(?:" + _NUMBER_PREFIX + r")*")
 
 
 def is_audio(name):
@@ -62,8 +64,11 @@ def normalize_genre(raw):
         return None
     first = re.sub(r"^\(\d+\)", "", first).strip()  # ID3v1 "(13)Pop"
     first = first.replace("/", "-").replace("\\", "-")  # Beatport "Techno (Peak Time / Driving)"
-    first = re.sub(r'[<>:"?*]', "", first)
+    first = re.sub(r'[<>:"?*\x00-\x1f]', "", first)
     first = re.sub(r"\s+", " ", first).strip(" .").title()
+    if first.upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                          *(f"LPT{i}" for i in range(1, 10))}:
+        first += "_"
     g = ALIAS.get(first, first) or None
     return None if g and g.startswith(("_", ".")) else g  # "_quarentena" etc. are the app's own folders
 
@@ -75,6 +80,8 @@ def genre_of(path):
 def genre_from_folder(path, pack=None):
     """Genre from the folder (or extracted pack) name, for untagged files."""
     for name in filter(None, (os.path.basename(os.path.dirname(path)), pack)):
+        if name == pack:  # downloaded pack names commonly use scene separators
+            name = re.sub(r"[_-]+", " ", name)
         for pat, g in FOLDER_RULES:
             if re.search(pat, name, re.I):
                 return g
@@ -127,14 +134,15 @@ def tag_bpm(path):
 
 def duration(path):
     f = _open(path)
-    return f.info.length if f and f.info else 0.0
+    return f.info.length if f is not None and f.info else 0.0
 
 
 # ---------- names: artist / title ----------
 
 def norm(s):
-    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)).casefold()
-    return re.sub(r"[\W_]+", " ", s).strip()  # accents dropped, other scripts kept
+    s = unicodedata.normalize("NFKC", s).casefold()
+    s = "".join(c if c.isalnum() or c == "_" or unicodedata.category(c).startswith("M") else " " for c in s)
+    return re.sub(r"[\s_]+", " ", s).strip()  # combining marks can change the word in many languages
 
 
 _ARTIST = {"id3": "TPE1", "vorbis": "artist", "mp4": "\xa9ART"}
@@ -210,12 +218,51 @@ def pictures(path):
     return out
 
 
+def _record_data(record):
+    return base64.b64decode(record["data"]) if isinstance(record, dict) else record
+
+
+def _record_identity(record):
+    if not isinstance(record, dict):
+        return ("legacy", cover_digest(record))
+    return tuple((k, str(record.get(k, ""))) for k in sorted(record) if k not in ("ordinal", "position"))
+
+
+def picture_records(path):
+    """Embedded images with the metadata needed for an exact site-cover Undo."""
+    f = _open(path)
+    if f is None:
+        return []
+    out = []
+    for p in getattr(f, "pictures", None) or []:  # FLAC
+        out.append({"kind": "flac", "data": base64.b64encode(p.data).decode("ascii"), "type": p.type,
+                    "mime": p.mime, "desc": p.desc, "width": p.width, "height": p.height,
+                    "depth": p.depth, "colors": p.colors})
+    for k in f.tags.keys() if f.tags else ():
+        if str(k).startswith(("APIC", "PIC")):
+            p = f.tags[k]
+            out.append({"kind": "id3", "data": base64.b64encode(p.data).decode("ascii"),
+                        "encoding": int(p.encoding), "mime": p.mime, "type": int(p.type), "desc": p.desc})
+        elif k == "covr":
+            for p in f.tags[k]:
+                out.append({"kind": "mp4", "data": base64.b64encode(bytes(p)).decode("ascii"),
+                            "imageformat": int(getattr(p, "imageformat", 0))})
+    seen = {}
+    for position, rec in enumerate(out):
+        rec["position"] = position
+        ident = _record_identity(rec)
+        seen[ident] = seen.get(ident, 0) + 1
+        rec["ordinal"] = seen[ident]
+    return out
+
+
 def put_back_cover(path, data):
-    """Undo of taking a site's cover out: adds the image next to whatever is there, unchecked (it was in the file).
-    shortcut: it comes back as a front cover, its original description isn't kept."""
+    """Undo of taking a site's cover out, preserving its stored type, description and order."""
     from mutagen.flac import Picture
     from mutagen.id3 import APIC
     from mutagen.mp4 import MP4Cover
+    record = data if isinstance(data, dict) else None
+    data = _record_data(data)
     png = data[:8] == b"\x89PNG\r\n\x1a\n"
     mime = ("image/png" if png else "image/gif" if data[:4] == b"GIF8"
             else "image/webp" if data[8:12] == b"WEBP" else "image/jpeg")
@@ -223,19 +270,48 @@ def put_back_cover(path, data):
     if f is None:
         raise ValueError("formato nao reconhecido")
     ext = os.path.splitext(path)[1].lower()
+    version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     if ext == ".flac":
         pic = Picture()
-        pic.type, pic.mime, pic.data = 3, mime, data
-        f.add_picture(pic)
+        pic.type = record.get("type", 3) if record else 3
+        pic.mime = record.get("mime", mime) if record else mime
+        pic.desc = record.get("desc", "") if record else ""
+        pic.width = record.get("width", 0) if record else 0
+        pic.height = record.get("height", 0) if record else 0
+        pic.depth = record.get("depth", 0) if record else 0
+        pic.colors = record.get("colors", 0) if record else 0
+        pic.data = data
+        if record:
+            keep = list(f.pictures)
+            keep.insert(min(int(record.get("position", len(keep))), len(keep)), pic)
+            f.clear_pictures()
+            for item in keep:
+                f.add_picture(item)
+        else:
+            f.add_picture(pic)
     else:
         if f.tags is None:
             f.add_tags()
         if ext == ".m4a":
-            fmt = MP4Cover.FORMAT_PNG if png else MP4Cover.FORMAT_JPEG
-            f.tags["covr"] = list(f.tags.get("covr") or []) + [MP4Cover(data, imageformat=fmt)]
+            fmt = record.get("imageformat") if record else (MP4Cover.FORMAT_PNG if png else MP4Cover.FORMAT_JPEG)
+            covers = list(f.tags.get("covr") or [])
+            covers.insert(min(int(record.get("position", len(covers))), len(covers)) if record else len(covers),
+                          MP4Cover(data, imageformat=fmt))
+            f.tags["covr"] = covers
         else:  # own description: ID3 keeps one image per description
-            f.tags.add(APIC(encoding=3, mime=mime, type=3, desc=cover_digest(data), data=data))
-    f.save()
+            pic = APIC(encoding=record.get("encoding", 3) if record else 3,
+                       mime=record.get("mime", mime) if record else mime,
+                       type=record.get("type", 3) if record else 3,
+                       desc=record.get("desc", cover_digest(data)) if record else cover_digest(data), data=data)
+            if record:
+                covers = list(f.tags.getall("APIC"))
+                covers.insert(min(int(record.get("position", len(covers))), len(covers)), pic)
+                f.tags.delall("APIC")
+                for item in covers:
+                    f.tags.add(item)
+            else:
+                f.tags.add(pic)
+    _save(f, ext, version)
 
 
 def set_cover(path, data):
@@ -252,6 +328,7 @@ def set_cover(path, data):
     if _has_cover(f):
         raise ValueError("already has cover art")  # an existing cover is never replaced
     ext = os.path.splitext(path)[1].lower()
+    version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     if ext == ".flac":
         pic = Picture()
         pic.type, pic.mime, pic.desc, pic.data = 3, mime, "Cover", data
@@ -264,7 +341,7 @@ def set_cover(path, data):
             f.tags["covr"] = [MP4Cover(data, imageformat=fmt)]
         else:
             f.tags.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
-    f.save()
+    _save(f, ext, version)
 
 
 def remove_cover(path, digest):
@@ -272,6 +349,8 @@ def remove_cover(path, digest):
     f = mutagen.File(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
+    ext = os.path.splitext(path)[1].lower()
+    version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     found = False
     if getattr(f, "pictures", None):  # FLAC
         keep = [p for p in f.pictures if cover_digest(p.data) != digest]
@@ -294,7 +373,7 @@ def remove_cover(path, digest):
                     else:
                         del f.tags["covr"]
     if found:
-        f.save()
+        _save(f, ext, version)
     return found
 
 
@@ -302,7 +381,7 @@ def read_info(path):
     """Everything the organizer needs from one file, with a single open: genre text, artist, title, duration."""
     f = _open(path)
     info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "bitrate": 0, "cover": False, "unreadable": f is None}
-    if not f:
+    if f is None:
         return info
     info["duration"] = f.info.length if f.info else 0.0
     info["bitrate"] = getattr(f.info, "bitrate", 0) or 0  # bits/s; 0 when the format doesn't say
@@ -337,18 +416,27 @@ def artist_title(path, info=None):
 
 
 def artists_key(a):
-    a = re.sub(r"\b(feat|ft|featuring)\b\.?", ",", a, flags=re.I)
-    parts = re.split(r",|&|;|/|\s+x\s+|\band\b|\bvs\b\.?", a, flags=re.I)  # ' x ' only between names
-    return " + ".join(sorted({norm(p) for p in parts if norm(p)}))
+    a = a.strip()
+    # "ft." is a join only after an artist name; it can also start a real name (Ft. Lauderdale).
+    a = re.sub(r"\b(feat|ft|featuring)\b\.?",
+               lambda m: m.group(0) if not a[:m.start()].strip() else ",", a, flags=re.I)
+    parts = re.split(r",|&|;|/|\s+x\s+|\s+(?:and|vs)\.?\s+", a, flags=re.I)  # joins only between names
+    keys = {norm(p) for p in parts if norm(p)}
+    return " + ".join(sorted(keys)) or unicodedata.normalize("NFKC", a).casefold().strip()
 
 
 def title_key(t, merge_versions=True):
     t = JUNK.sub("", t)
-    # drop "feat. X" but stop before "(... Remix)" so the remix name survives
-    t = re.sub(r"[\(\[]\s*(feat|ft)\b[^\)\]]*[\)\]]|\s(feat|ft)\.?\s[^\(\[]*", " ", t, flags=re.I)
+    # A featured singer can identify a different recording, so keep the name in the key.
+    t = re.sub(r"[\(\[]\s*(?:feat|ft)\.?\s*([^\)\]]*)[\)\]]|\s(?:feat|ft)\.?\s+([^\(\[]*)",
+               lambda m: " feat " + (m.group(1) or m.group(2) or ""), t, flags=re.I)
     rx = VERSION if merge_versions else VERSION_STRICT
     while rx.search(t):
         t = rx.sub("", t)
+    if merge_versions:
+        t = re.sub(r"\s*[-–—]\s*(?:extended|original|club|radio)\s+(?:mix|edit|version)\s*$", "", t, flags=re.I)
+    else:
+        t = re.sub(r"\s*[-–—]\s*(?:extended|original)\s+(?:mix|version)\s*$", "", t, flags=re.I)
     return norm(t)
 
 
@@ -374,6 +462,12 @@ def pack_file_name(path, info):
         return None
     if not _REMIX.search(t):  # 'Groove' in the tag, 'Groove (Extended Mix)' in the file name
         old = os.path.splitext(os.path.basename(path))[0].replace("_", " ")
+        if " - " in old:
+            old = old.split(" - ", 1)[1]
+        else:  # scene name: 01-fisher-losing_it-extended_mix
+            tagged_artist = re.sub(r"\s+", r"\\s+", re.escape(a).replace(r"\ ", " "))
+            old = re.sub(r"^\s*" + _NUMBER_PREFIX, "", old)
+            old = re.sub(r"^" + tagged_artist + r"\s*[-–—]\s*", "", old, flags=re.I)
         found = _REMIX.findall(old) or [m.group(0) for m in _BARE_VERSION.finditer(old)]
         if found:
             v = found[-1].strip()
@@ -396,7 +490,7 @@ _FILE_SITE = re.compile(r"\s*[\[(]\s*(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|o
 
 # a track number at the start of a file name: '05. ', '01 - ', '01-', '01_', '03) ', '[9A] 05 - ', or '01 ' with a 0.
 # '3.14 (AR)', '1-2-3' or '808 State' are not track numbers ('.'/'-' right before a digit, or no separator)
-_TRACK_NUM = re.compile(r"^(\s*\[[^\]]*\]\s*)?(?:\d{1,3}\s*(?:\.(?!\d)|[)_]|\s-\s|-(?!\d))\s*|0\d\s+)(?=\D)")
+_TRACK_NUM = re.compile(r"^(\s*\[[^\]]*\]\s*)?(?:" + _NUMBER_PREFIX + r")(?=\D)")
 
 
 def _plain(s):
@@ -471,10 +565,11 @@ _PIECES = re.compile(r"\s*[\[(]\s*" + _DOMAIN + r"\s*[\])]"
                      # (.com/.net/.org/.ru/.info, or a hyphen in the name): 'Artist, Toolroom.Club' / 'Love.me' stay
                      r"|\s*,\s*(?:(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info)"
                      r"|(?:www\.)?[\w]+-[\w-]+\.[a-z]{2,10})/?\s*$"
-                     r"|\s*[-|–—]\s*" + _DOMAIN + r"\s*$"
+                     r"|\s*[-|–—]\s*(?:(?:https?://|www\.)\S+|[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|ru|info)\b/?\S*)\s*$"
                      r"|\s*(?:https?://|www\.)\S+", re.I)
 _ID3_TEXT = {"TALB", "TIT2", "TPE1", "TPE2", "TPUB", "COMM", "TCOP", "TENC", "TXXX"}
 _ID3_URL = {"WXXX", "WOAS", "WOAF", "WPUB", "WCOM", "WORS"}
+_URL_SPAM = re.compile(r"(?:djsoundtop|4djsonline|sharing-db|whoplaymusic|electronicfresh|groovytunes)", re.I)
 _OTHER_TEXT = {"album", "title", "artist", "albumartist", "label", "organization", "comment", "description",
                "copyright", "encodedby", "encoder", "\xa9alb", "\xa9nam", "\xa9ART", "aART", "\xa9cmt", "cprt", "\xa9too"}
 
@@ -488,6 +583,7 @@ def strip_sites(text):
     out = _PIECES.sub("", text)
     if out == text:
         return text  # no site: untouched, whatever it looks like ('!!!' is a band)
+    out = re.sub(r"\s*[-|–—]\s*[-|–—]\s*", " - ", out)
     out = out.strip(" -|–—:,")  # a site came out: no dangling separator or comma left behind ('Iglesias,')
     return out if re.search(r"\w", out) else ""
 
@@ -510,9 +606,12 @@ def _clean(f, path, write):
         if os.path.splitext(path)[1].lower() in ID3_EXT:
             fid = key[:4]
             if fid in _ID3_URL:
-                changed += 1
-                if write:
-                    del f.tags[key]
+                frame = f.tags[key]
+                value = " ".join(str(getattr(frame, x, "")) for x in ("url", "desc"))
+                if _URL_SPAM.search(value):
+                    changed += 1
+                    if write:
+                        del f.tags[key]
                 continue
             frame = f.tags[key]
             if fid not in _ID3_TEXT or not hasattr(frame, "text"):
@@ -537,19 +636,27 @@ def _clean(f, path, write):
     return changed
 
 
+def _save(f, ext, v2_version=None):
+    if ext in ID3_EXT and v2_version in (3, 4):
+        f.save(v2_version=v2_version)
+    else:
+        f.save()
+
+
 def fix_tags(path, genre=None, clean=False):
     """genre: None = leave, '' = remove, text = set. One save for both edits. -> (genre_changed, site_fields_changed)."""
     f = mutagen.File(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
     ext = os.path.splitext(path)[1].lower()
+    version = f.tags.version[1] if ext in ID3_EXT and f.tags is not None and hasattr(f.tags, "version") else None
     g = 0
     if genre is not None and not (f.tags is None and not genre):
         _set_genre(f, ext, genre)
         g = 1
     s = _clean(f, path, True) if clean and f.tags else 0
     if g or s:
-        f.save()
+        _save(f, ext, version)
     return g, s
 
 
@@ -568,15 +675,18 @@ def snapshot(path):
     if f is None:
         return ""
     id3 = os.path.splitext(path)[1].lower() in ID3_EXT
-    data = None if f.tags is None else {k: (f.tags.getall(k) if id3 else list(f.tags[k])) for k in _text_keys(f)}
-    return base64.b64encode(pickle.dumps((id3, data), protocol=4)).decode("ascii")
+    data = None if f.tags is None else {k: (copy.deepcopy(f.tags.getall(k)) if id3 else copy.deepcopy(f.tags[k]))
+                                       for k in _text_keys(f)}
+    version = f.tags.version[1] if id3 and f.tags is not None and hasattr(f.tags, "version") else None
+    return base64.b64encode(pickle.dumps((id3, data, version), protocol=4)).decode("ascii")
 
 
 def restore(path, snap):
     """Undo of fix_tags: text tags back to the snapshot. Only reads snapshots this app wrote itself."""
     if not snap:
         return
-    id3, data = pickle.loads(base64.b64decode(snap))  # our own run log in %APPDATA%, never external input
+    saved = pickle.loads(base64.b64decode(snap))  # our own run log in %APPDATA%, never external input
+    id3, data, version = (*saved, None) if len(saved) == 2 else saved
     f = mutagen.File(path)
     if f is None:
         raise ValueError("formato nao reconhecido")
@@ -595,4 +705,4 @@ def restore(path, snap):
             f.tags.setall(k, v)
         else:
             f.tags[k] = v
-    f.save()
+    _save(f, os.path.splitext(path)[1].lower(), version)

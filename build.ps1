@@ -14,7 +14,7 @@ python -c "from organizador import termos; [open(f'installer/build/termos_{k}.tx
 python tests\test_pipeline.py
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-# librosa fica de fora (centenas de MB): no .exe o BPM vem so da tag.
+# pacotes grandes que a app nao usa, se estiverem instalados neste PC.
 # Modulos Qt que a app nao usa ficam de fora (e alguns, como o VirtualKeyboard, nao sao LGPL).
 $excl = "librosa numba scipy sklearn PySide6.QtNetwork PySide6.QtQml PySide6.QtQuick PySide6.QtPdf PySide6.QtOpenGL PySide6.QtVirtualKeyboard".Split(" ") | ForEach-Object { "--exclude-module", $_ }
 python -m PyInstaller --noconfirm --clean --windowed --name GrooveWizard --icon organizador\recursos\groovewizard.ico `
@@ -29,13 +29,15 @@ foreach ($d in "plugins\platforminputcontexts", "plugins\networkinformation", "p
     if (Test-Path "$qt\$d") { Get-ChildItem -LiteralPath "$qt\$d" -File -Recurse | Remove-Item -Force; Remove-Item -LiteralPath "$qt\$d" -Recurse -Force }
 }
 
-# a app empacotada tem de arrancar depois de tirar os modulos
+# a app empacotada tem de arrancar (e medir um BPM) depois de tirar os modulos
 Push-Location $env:TEMP
-Start-Process "$PSScriptRoot\dist\GrooveWizard\GrooveWizard.exe" -ArgumentList "--self-test" -Wait
-$ok = Select-String -Quiet -Pattern "^self-test ok" -Path "$env:TEMP\groovewizard-self-test.log"
-Remove-Item "$env:TEMP\groovewizard-self-test.log" -ErrorAction SilentlyContinue
+$testLog = Join-Path $env:TEMP "groovewizard-self-test.log"
+Remove-Item $testLog -ErrorAction SilentlyContinue
+$testProcess = Start-Process "$PSScriptRoot\dist\GrooveWizard\GrooveWizard.exe" -ArgumentList "--self-test" -Wait -PassThru -WindowStyle Hidden
+$ok = $testProcess.ExitCode -eq 0 -and (Test-Path $testLog) -and (Select-String -Quiet -Pattern "^self-test ok" -Path $testLog)
+Remove-Item $testLog -ErrorAction SilentlyContinue
 Pop-Location
-if (-not $ok) { Write-Error "o .exe nao arranca depois de tirar os modulos Qt"; exit 1 }
+if (-not $ok) { Write-Error "o .exe nao arranca ou nao fecha corretamente depois de tirar os modulos Qt"; exit 1 }
 
 # nenhum plugin/DLL do Qt pode depender de uma DLL que foi tirada
 $gone = "Qt6Pdf Qt6Network Qt6Qml Qt6Quick Qt6OpenGL Qt6VirtualKeyboard".Split(" ")
@@ -49,7 +51,7 @@ New-Item -ItemType Directory -Force dist\GrooveWizard\licencas | Out-Null
 Copy-Item licencas\* dist\GrooveWizard\licencas\ -Force
 Copy-Item LICENSE dist\GrooveWizard\LICENSE.txt -Force
 $v = @("Versao da app: $version", ("Python: " + (python -c "import sys; print(sys.version)")))
-$v += python -m pip freeze | Select-String -Pattern "^(mutagen|PySide6|PySide6_Essentials|shiboken6|Send2Trash|pyinstaller)==" -CaseSensitive:$false
+$v += python -m pip freeze | Select-String -Pattern "^(mutagen|PySide6|PySide6_Essentials|shiboken6|Send2Trash|pyinstaller|numpy|soundfile|cffi|pycparser|typing_extensions)==" -CaseSensitive:$false
 $v | Set-Content -Encoding utf8 dist\GrooveWizard\licencas\VERSOES.txt
 if ($SemInstalador) { exit 0 }
 

@@ -253,6 +253,7 @@ class Window(QMainWindow):
         self._updating = False
         self._plan, self._plan_opts, self._plan_snapshot = [], None, None
         self._key_ui = {}
+        self._key_controls = []
         self._key_result.connect(self._show_key_result)  # once: results come back to the UI thread
         self._update_info = None
         self._update_found.connect(self._show_update)
@@ -262,6 +263,8 @@ class Window(QMainWindow):
         QShortcut(QKeySequence("F1"), self, self.show_help)
 
     def build(self):
+        old_log = self.log.toPlainText() if hasattr(self, "log") else ""
+        self._key_controls = []
         opts, keys = config.load()
         self.folder_lang = opts.folder_lang
         root = QWidget(objectName="root")
@@ -472,6 +475,14 @@ class Window(QMainWindow):
         self.setCentralWidget(root)
         self.setWindowTitle(t("app.title"))
         self._fit_columns()
+        if old_log:
+            self.log.setPlainText(old_log)
+        if self._plan:
+            tracks = len({p for _, p, _ in self._plan})
+            self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
+            self.btn_plan.show()
+        if hasattr(self, "_last_rep"):
+            self.show_stats(self._last_rep)
 
     WIDE = 1500  # px: from here the steps move to a middle column
 
@@ -503,12 +514,17 @@ class Window(QMainWindow):
         show.toggled.connect(lambda on: (e.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password),
                                          show.setText(t("btn.hide") if on else t("btn.show"))))
         check = QPushButton(t("btn.check"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.check_tip"))
+        clear = QPushButton(t("btn.clear_key"), objectName="ghost", cursor=Qt.PointingHandCursor)
+        self._key_controls.extend((show, clear, check))
         status = QLabel(objectName="hint")
         self._key_ui[service] = (check, status)
         check.clicked.connect(lambda: self.check_key(service, e))
+        clear.clicked.connect(lambda: (e.clear(), config.clear_key(
+            "discogs_token" if service == "discogs" else "lastfm_api_key"), status.setText("")))
         e.textChanged.connect(lambda _: status.setText(""))  # a different key: old result no longer applies
         row.addWidget(e, 1)
         row.addWidget(show)
+        row.addWidget(clear)
         row.addWidget(check)
         lay.addLayout(row)
         lay.addWidget(status)
@@ -662,7 +678,7 @@ class Window(QMainWindow):
     def busy(self, on):
         for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_quarantine, self.btn_report, self.btn_plan,
                   self.btn_covers, self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
-                  self.lang_combo, *self.toggles.values()):
+                  self.lang_combo, *self._key_controls, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
 
@@ -726,7 +742,10 @@ class Window(QMainWindow):
             event.ignore()
             if QMessageBox.question(self, t("app.title"), t("msg.close_running")) == QMessageBox.Yes:
                 self.do_cancel()
-                self.thread.finished.connect(self.close)
+                if self.thread and self.thread.isRunning():
+                    self.thread.finished.connect(self.close)
+                else:
+                    QTimer.singleShot(0, self.close)
             return
         event.accept()
 
@@ -820,9 +839,9 @@ class Window(QMainWindow):
         if on and QMessageBox.question(self, t("shut.toggle"), t("shut.confirm")) != QMessageBox.Yes:
             self.shutdown_toggle.setChecked(False)
 
-    def _maybe_shutdown(self, kind):
+    def _maybe_shutdown(self, kind, errs=()):
         """After an Organize run that finished (never after an error or a cancel): 60 s to change your mind."""
-        if kind != "run" or not self.shutdown_toggle.isChecked():
+        if kind != "run" or errs or not self.shutdown_toggle.isChecked():
             return
         self.shutdown_toggle.setChecked(False)
         shutdown_pc(60)
@@ -850,7 +869,8 @@ class Window(QMainWindow):
         self.busy(False)
 
     def on_finished(self, kind, rep, errs):
-        QTimer.singleShot(0, lambda: self._maybe_shutdown(kind))  # after the results are on screen
+        QTimer.singleShot(0, lambda: self._maybe_shutdown(kind, tuple(errs)))  # after the results are on screen
+        self._last_rep = rep
         self.bar.setMaximum(1)
         self.bar.setValue(1)
         for _, r in self.step_rows:

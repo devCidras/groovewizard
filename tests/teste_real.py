@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["APPDATA"] = os.path.join(sys.argv[2] + "_appdata")  # caches/logs of the test kept apart
 
 import organizador.pipeline as pl  # noqa: E402
-from organizador.tags import AUDIO, raw_genre  # noqa: E402
+from organizador.tags import AUDIO, picture_records, snapshot  # noqa: E402
 
 
 def audio_hash(path):
@@ -70,7 +70,7 @@ def state(root):
         for n in fs:
             if os.path.splitext(n)[1].lower() in AUDIO:
                 p = os.path.join(dp, n)
-                out[os.path.relpath(p, root)] = (audio_hash(p), raw_genre(p))
+                out[os.path.relpath(p, root)] = (audio_hash(p), snapshot(p), picture_records(p))
     return out
 
 
@@ -104,9 +104,9 @@ def main():
     after = state(dst)
     q = state(os.path.join(dst, pl.QUARANTINE)) if os.path.isdir(os.path.join(dst, pl.QUARANTINE)) else {}
     lib = {k: v for k, v in after.items() if not k.startswith(pl.QUARANTINE)}
-    hashes_before = sorted(h for h, _ in before.values())
+    hashes_before = sorted(v[0] for v in before.values())
     zip_hashes = sorted(audio_hash(p) for p in packed)
-    hashes_after = sorted([h for h, _ in lib.values()] + [h for h, _ in q.values()])
+    hashes_after = sorted([v[0] for v in lib.values()] + [v[0] for v in q.values()])
     assert hashes_after == sorted(hashes_before + zip_hashes), "faixas perdidas ou audio alterado!"
     print(f"ok: nenhuma faixa perdida, audio identico ({len(lib)} na biblioteca, {len(q)} em quarentena)")
     no_genre = sum(1 for k in lib if k.startswith(pl.FOLDER_NAMES["pt"][pl.NO_GENRE]))
@@ -118,7 +118,7 @@ def main():
     # the extracted copies are put aside in quarantine (the zip itself stays), so compare the rest
     back = {k: v for k, v in state(dst).items() if not k.startswith((pl.INBOX, pl.QUARANTINE))}
     assert {k: v for k, v in back.items()} == before, "desfazer nao repos tudo igual"
-    print("ok: desfazer repos caminhos, audio e generos exatamente como antes")
+    print("ok: desfazer repos caminhos, audio, tags, versao ID3 e metadados das capas exatamente como antes")
 
 
 if __name__ == "__main__":
