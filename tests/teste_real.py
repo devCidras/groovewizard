@@ -4,6 +4,7 @@ Uso: python tests/teste_real.py D:\\musica D:\\groovewizard-teste [N]
 Never touches the source library: it only reads it to copy N tracks.
 Checks: no audio lost, audio data byte-identical (tags excluded), Undo restores paths and tags.
 """
+import argparse
 import hashlib
 import os
 import random
@@ -12,11 +13,9 @@ import struct
 import sys
 import time
 import zipfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ["APPDATA"] = os.path.join(sys.argv[2] + "_appdata")  # caches/logs of the test kept apart
-
-import organizador.pipeline as pl  # noqa: E402
 from organizador.tags import AUDIO, picture_records, snapshot  # noqa: E402
 
 
@@ -36,12 +35,14 @@ def audio_hash(path):
         return hashlib.md5(body).hexdigest()
     if ext == ".flac":
         i = 4
-        while True:
+        while i + 4 <= len(data):
             last, size = data[i] & 0x80, int.from_bytes(data[i + 1:i + 4], "big")
             i += 4 + size
             if last:
+                if i < len(data):
+                    return hashlib.md5(data[i:]).hexdigest()
                 break
-        return hashlib.md5(data[i:]).hexdigest()
+        raise ValueError(f"FLAC truncado: {path}")
     if ext in (".wav", ".aiff", ".aif"):
         want, big = (b"data", False) if ext == ".wav" else (b"SSND", True)
         i = 12
@@ -52,15 +53,27 @@ def audio_hash(path):
             i += 8 + size + (size & 1)
     if ext == ".m4a":
         i = 0
+        digest = hashlib.md5()
+        audio_size = 0
         while i + 8 <= len(data):
             size, typ = struct.unpack(">I4s", data[i:i + 8])
+            header = 8
             if size == 1:
-                size = struct.unpack(">Q", data[i + 8:i + 16])[0]
+                if i + 16 > len(data):
+                    break
+                size = struct.unpack_from(">Q", data, i + 8)[0]
+                header = 16
+            elif size == 0:
+                size = len(data) - i
+            if size < header or i + size > len(data):
+                raise ValueError(f"M4A inválido: {path}")
             if typ == b"mdat":
-                return hashlib.md5(data[i:i + size]).hexdigest()
-            if size < 8:
-                break
+                digest.update(memoryview(data)[i + header:i + size])
+                audio_size += size - header
             i += size
+        if i != len(data) or not audio_size:
+            raise ValueError(f"Não foi possível verificar o áudio M4A: {path}")
+        return digest.hexdigest()
     return hashlib.md5(data).hexdigest()
 
 
@@ -75,24 +88,41 @@ def state(root):
 
 
 def main():
-    src, dst = sys.argv[1], sys.argv[2]
-    n = int(sys.argv[3]) if len(sys.argv) > 3 else 200
-    if os.path.exists(dst):
-        sys.exit(f"{dst} ja existe: apaga-o ou escolhe outro")
-    files = [os.path.join(dp, f) for dp, ds, fs in os.walk(src) if "\\_" not in dp and "downloading" not in dp.lower()
-             for f in fs if os.path.splitext(f)[1].lower() in AUDIO]
-    random.seed(7)
-    sample = random.sample(files, min(n, len(files)))
+    parser = argparse.ArgumentParser(description="Verifica Organizar e Desfazer numa cópia da biblioteca.")
+    parser.add_argument("origem", type=Path)
+    parser.add_argument("destino", type=Path)
+    parser.add_argument("quantidade", type=int, nargs="?", default=200)
+    args = parser.parse_args()
+    src, dst = args.origem.resolve(), args.destino.resolve()
+    profile = dst.with_name(dst.name + "_appdata") if dst.name else dst
+    if not src.is_dir() or args.quantidade <= 0:
+        parser.error("Indica uma pasta de origem existente e uma quantidade positiva.")
+    if dst.is_relative_to(src) or profile.is_relative_to(src) or dst.exists() or profile.exists():
+        parser.error("Escolhe um destino novo fora da biblioteca, com espaço para a cópia e o perfil de teste.")
+    files = []
+    for dp, dirs, names in os.walk(src):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("_") and "downloading" not in d.lower())
+        files.extend(Path(dp, name) for name in sorted(names) if Path(name).suffix.lower() in AUDIO)
+    if not files:
+        parser.error("Não encontrei faixas compatíveis na pasta de origem.")
+    sample = random.Random(7).sample(files, min(args.quantidade, len(files)))
     loose, packed = sample[: int(len(sample) * 0.8)], sample[int(len(sample) * 0.8):]
-    os.makedirs(os.path.join(dst, "novas"))
+    dst.mkdir(parents=True)
+    profile.mkdir()
+    os.environ["APPDATA"] = str(profile)
+    import organizador.pipeline as pl  # uses the isolated profile at import
+
     for p in loose:
-        shutil.copy2(p, os.path.join(dst, "novas", os.path.basename(p)))
-    for p in loose[:10]:  # a duplicate of 10 of them, as a shorter-named radio edit copy
-        b, e = os.path.splitext(os.path.basename(p))
-        shutil.copy2(p, os.path.join(dst, "novas", f"{b} (Radio Edit){e}"))
+        target = dst / "novas" / p.relative_to(src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, target)
+    for p in loose[:10]:
+        target = dst / "duplicadas" / p.relative_to(src).with_name(f"{p.stem} (Radio Edit){p.suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, target)
     with zipfile.ZipFile(os.path.join(dst, "Best New Tech House Pack.zip"), "w") as z:
         for p in packed:
-            z.write(p, os.path.basename(p))
+            z.write(p, p.relative_to(src))
         z.writestr("cover.jpg", b"x")
     before = state(dst)
     print(f"amostra: {len(before)} faixas soltas + {len(packed)} num zip")
@@ -100,6 +130,7 @@ def main():
     t0 = time.time()
     opts = pl.Options(root=dst, online=False, rename_packs=True)  # online needs keys; tested separately
     rep, errs = pl.Organizer(opts).run()
+    organize_errors = errs
     print(f"organizar: {time.time() - t0:.0f} s", dict(rep), "erros:", errs[:5])
     after = state(dst)
     q = state(os.path.join(dst, pl.QUARANTINE)) if os.path.isdir(os.path.join(dst, pl.QUARANTINE)) else {}
@@ -107,7 +138,8 @@ def main():
     hashes_before = sorted(v[0] for v in before.values())
     zip_hashes = sorted(audio_hash(p) for p in packed)
     hashes_after = sorted([v[0] for v in lib.values()] + [v[0] for v in q.values()])
-    assert hashes_after == sorted(hashes_before + zip_hashes), "faixas perdidas ou audio alterado!"
+    if hashes_after != sorted(hashes_before + zip_hashes):
+        sys.exit("O áudio organizado difere da amostra original.")
     print(f"ok: nenhuma faixa perdida, audio identico ({len(lib)} na biblioteca, {len(q)} em quarentena)")
     no_genre = sum(1 for k in lib if k.startswith(pl.FOLDER_NAMES["pt"][pl.NO_GENRE]))
     print(f"   sem genero: {no_genre}; generos: {sorted({k.split(os.sep)[0] for k in lib})}")
@@ -117,7 +149,10 @@ def main():
     print(f"desfazer: {time.time() - t0:.0f} s", dict(rep), "erros:", errs[:5])
     # the extracted copies are put aside in quarantine (the zip itself stays), so compare the rest
     back = {k: v for k, v in state(dst).items() if not k.startswith((pl.INBOX, pl.QUARANTINE))}
-    assert {k: v for k, v in back.items()} == before, "desfazer nao repos tudo igual"
+    if back != before:
+        sys.exit("Desfazer não repôs todos os caminhos, conteúdos de áudio, tags e capas.")
+    if organize_errors or errs:
+        sys.exit("O teste registou erros ao organizar ou desfazer. Consulta as mensagens acima.")
     print("ok: desfazer repos caminhos, audio, tags, versao ID3 e metadados das capas exatamente como antes")
 
 

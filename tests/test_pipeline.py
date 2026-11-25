@@ -1438,6 +1438,68 @@ def test_gui_preview_state():
     window.close()
 
 
+def test_cancel_reopen_and_undo():
+    from pathlib import Path
+    from unittest.mock import patch
+    from PySide6.QtCore import QEventLoop, QObject, QTimer, Qt, Signal
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from organizador import gui
+
+    app = QApplication.instance() or QApplication([])
+    root = Path(TMP, "cancel-after-move")
+    original = {}
+    for title in ("One", "Two", "Three"):
+        path = Path(make(str(root / "loose" / (title + ".wav")), 1, "DJ", title, "Techno"))
+        original[path] = path.read_bytes()
+    window = gui.Window()
+    window.folder.setText(str(root))
+    for toggle in window.toggles.values():
+        toggle.setChecked(False)
+
+    class FirstMove(QObject):
+        completed = Signal()
+
+    moved = FirstMove()
+    moved.completed.connect(window.btn_cancel.click, Qt.QueuedConnection)
+    move = pl.Organizer.move
+
+    def move_then_pause(org, *args):
+        destination = move(org, *args)
+        assert destination
+        moved.completed.emit()
+        assert org.cancel.wait(5)
+        return destination
+
+    def wait_for_worker(w):
+        loop = QEventLoop()
+        timeout = QTimer(singleShot=True)
+        timeout.timeout.connect(loop.quit)
+        w.thread.finished.connect(loop.quit)
+        timeout.start(10000)
+        loop.exec()
+        assert timeout.isActive() and w.thread is None
+        app.processEvents()
+
+    with patch.object(pl.Organizer, "move", move_then_pause), patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+        window.btn_run.click()
+        wait_for_worker(window)
+    assert window.rows["organize"].current == "cancelled"
+    assert window.status.text() == gui.t("status.cancelled")
+    assert sum(not path.exists() for path in original) == 1
+    window.lang_combo.setCurrentIndex(1 - window.lang_combo.currentIndex())
+    assert window.rows["organize"].state.text() == gui.t("state.cancelled")
+    window.close()
+
+    reopened = gui.Window()
+    assert reopened.folder.text() == str(root)
+    run_id = pl.list_runs(str(root))[0][0]
+    reopened.start("undo", extra={"until": run_id, "newest": run_id})
+    wait_for_worker(reopened)
+    assert {p: p.read_bytes() for p in root.rglob("*.wav")} == original
+    assert not pl.list_runs(str(root))
+    reopened.close()
+
+
 def test_deep_audit_regressions():
     from unittest.mock import patch
     from organizador.tags import duration, read_info, restore, snapshot
@@ -1592,6 +1654,7 @@ if __name__ == "__main__":
         test_gui_settings()
         test_audit_7z_update_and_dialogs()
         test_gui_preview_state()
+        test_cancel_reopen_and_undo()
         test_deep_audit_regressions()
         test_concurrent_move_and_undo_conflicts()
         print("ok")

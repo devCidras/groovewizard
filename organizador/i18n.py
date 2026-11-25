@@ -176,6 +176,7 @@ S = {
     "status.preview_done": {"pt": "Pré-visualização pronta — nada foi alterado.", "en": "Preview ready — nothing was changed."},
     "status.done": {"pt": "Feito.", "en": "Done."},
     "status.stopped": {"pt": "Parado.", "en": "Stopped."},
+    "status.cancelled": {"pt": "Operação cancelada.", "en": "Operation cancelled."},
     "card.progress": {"pt": "Progresso", "en": "Progress"},
     "card.summary": {"pt": "Resumo", "en": "Summary"},
     "log.placeholder": {"pt": "Aqui aparece o resumo de cada organização.", "en": "A summary of each organize shows up here."},
@@ -184,6 +185,9 @@ S = {
     "state.done": {"pt": "feito", "en": "done"},
     "state.off": {"pt": "desligado", "en": "off"},
     "state.error": {"pt": "parado", "en": "stopped"},
+    "state.cancelled": {"pt": "cancelado", "en": "cancelled"},
+    "msg.undo_cancelled": {"pt": "Desfazer cancelado. Podes retomá-lo em Ferramentas → Desfazer…",
+                           "en": "Undo cancelled. You can resume it under Tools → Undo…"},
     # dialogs
     "msg.pick_folder": {"pt": "Escolhe a pasta das músicas.", "en": "Choose your music folder."},
     "msg.run_confirm": {"pt": "Vai arrumar as músicas em:\n{root}\n\nFecha o rekordbox / Serato antes. No fim, no rekordbox, faz 'Relocate' para ele encontrar as faixas no sítio novo.\n\nContinuar?", "en": "This will sort the music in:\n{root}\n\nClose rekordbox / Serato first. Afterwards, use 'Relocate' in rekordbox so it finds the tracks in their new place.\n\nContinue?"},

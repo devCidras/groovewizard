@@ -136,8 +136,8 @@ class StatusIcon(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(2, 2, self.SIZE - 4, self.SIZE - 4)
-        if self.state in ("waiting", "off"):
-            p.setPen(QPen(QColor(C["switch_off"] if self.state == "waiting" else C["border"]), 2))
+        if self.state in ("waiting", "off", "cancelled"):
+            p.setPen(QPen(QColor(C["border"] if self.state == "off" else C["switch_off"]), 2))
             p.drawEllipse(r)
         elif self.state == "running":
             p.setPen(QPen(QColor(C["muted"]), 2))
@@ -191,7 +191,7 @@ class StepRow(QWidget):
 class Worker(QObject):
     progress = Signal(str, int, int, str)
     finished = Signal(str, object, object)  # kind, report, errors
-    failed = Signal(str)
+    failed = Signal(str, bool)  # message, operation actually cancelled
     ask = Signal(object, object, str)  # worker, [(path, new name)], "new"/"sites" -> answered via worker.answer()
 
     def __init__(self, kind, opts, keys, cancel, extra=None):
@@ -243,11 +243,12 @@ class Worker(QObject):
                 self.plan, self.snapshot = org.plan, org.snapshot
             self.finished.emit(self.kind, rep, errs)
         except Cancelled:
-            self.failed.emit(t("msg.cancelled"))
+            message = {"run": "msg.cancelled", "undo": "msg.undo_cancelled"}.get(self.kind, "status.cancelled")
+            self.failed.emit(t(message), True)
         except (Busy, ValueError) as e:  # expected: another window running, bad folder
-            self.failed.emit(str(e))
+            self.failed.emit(str(e), False)
         except Exception:
-            self.failed.emit(log_crash(traceback.format_exc()))
+            self.failed.emit(log_crash(traceback.format_exc()), False)
 
 
 class Window(QMainWindow):
@@ -1063,11 +1064,10 @@ class Window(QMainWindow):
         if box.clickedButton() is open_btn:
             os.startfile(path)
 
-    def on_failed(self, msg):
-        # never shut down after an error or a cancel: only a run that finished (see on_finished)
-        if self.current_row is not None:  # cancelled by the user: a plain stop, not a red cross
-            self.current_row.set("waiting" if self.cancel.is_set() else "error", t("state.error"))
-        self._status_key = "status.stopped"
+    def on_failed(self, msg, cancelled):
+        if self.current_row is not None:
+            self.current_row.set("cancelled" if cancelled else "error")
+        self._status_key = "status.cancelled" if cancelled else "status.stopped"
         self.status.setText(t(self._status_key))
         self.log.appendPlainText(msg)
 
