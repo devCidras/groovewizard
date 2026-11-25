@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 
 from organizador import config
 from organizador.ajuda import InfoDialog, TermsDialog, help_html
+from organizador import gui
 from organizador.gui import Window
 from organizador.i18n import set_lang, t
 from organizador.janelas import HistoryDialog, PlanDialog
@@ -71,6 +72,7 @@ def finished(w):
 app = QApplication([])
 app.setStyleSheet(QSS)
 config.load = lambda: (Options(root=ROOT, protected=[ROOT + r"\Os Meus Edits"]), {})
+gui.has_completed_full_run = lambda _root: True  # screenshot text only: never probe D:\musica
 
 screenshot(window(), "1-principal.png")
 w = window()
@@ -123,4 +125,9 @@ runs = [
     ("20261118-221500-1-1", {"mover": 87, "quarentena": 12, "extraido": 2}),
 ]
 screenshot(HistoryDialog(runs), "9-desfazer.png")
-print(f"Saved nine offline screenshots to {OUT}")
+w = window()
+w.scope_options["covers_all"] = True  # illustrate selecting only missing covers for old tracks
+dialog, _ = w._old_scope_dialog()
+screenshot(dialog, "10-antigas.png")
+w.close()
+print(f"Saved ten offline screenshots to {OUT}")

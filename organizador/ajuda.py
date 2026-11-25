@@ -54,7 +54,8 @@ HELP = {
   <li><b>Tags:</b> grava o género dentro da faixa e tira nomes de sites (ex.: <code>www.djsoundtop.com</code>) do
       título, álbum e comentários.</li>
   <li><b>Capas</b> (opção <i>Pôr capas</i>): as faixas sem capa recebem a capa do lançamento (Deezer e, com a chave,
-      Discogs). Uma capa que já exista nunca é trocada. No rekordbox, faz <i>Recarregar tag</i> para a ver.</li>
+      Discogs). Uma capa que já exista nunca é trocada. Em <i>Também nas antigas…</i>, podes incluir as faixas antigas
+      sem capa; se não encontrar uma capa, deixa-as como estão. No rekordbox, faz <i>Recarregar tag</i> para a ver.</li>
   <li><b>Capas de sites</b> (opção <i>Trocar capas de sites</i>): tira as capas que são publicidade (ex.: djsoundtop)
       ou genéricas (ex.: símbolo do Beatport) e procura a verdadeira. Se não a encontrar, a faixa fica sem capa. Se
       aparecer um site novo, carrega em <i>Ver capas repetidas…</i> e marca a capa dele.</li>
@@ -74,9 +75,14 @@ HELP = {
 <h3>Opções úteis</h3>
 <ul>
   <li><b>Pastas protegidas</b> (em Biblioteca): pastas em que a app nunca toca, por exemplo os teus edits.</li>
-  <li><b>Só faixas novas:</b> mais rápido. Arruma só o que chegou desde a última vez (packs e faixas novas, em
-      qualquer pasta). As faixas que já tinhas não são tocadas. Na primeira vez que organizas uma pasta, ela é arrumada
-      toda. De vez em quando organiza sem esta opção, para arrumar tudo.</li>
+  <li><b>Só faixas novas:</b> fica disponível depois da primeira organização completa desta biblioteca. Normalmente
+      arruma só o que chegou depois. Em <i>Também nas antigas…</i>, escolhes separadamente quais os passos a repetir
+      nas faixas antigas: arrumar, remover repetidas, procurar género online, separar por BPM, gravar género na tag,
+      limpar sites das tags, pôr capas ou trocar capas de sites. Todas estas escolhas começam desligadas e só atuam
+      quando o respetivo passo está ligado. Arrumar, procurar género online e separar por BPM podem mover faixas;
+      remover repetidas pode enviá-las para a quarentena; trocar capas de sites pode deixar uma faixa sem capa.
+      Usa Pré-visualizar e faz uma cópia de segurança. A comparação de repetidas pode ler todas as faixas, mas não
+      altera as antigas sem essa escolha.</li>
   <li><b>Relatório:</b> mostra as faixas com problemas, sem mexer em nada: sem artista ou título, sem género, MP3 de
       menor qualidade ou muito curtas. Abre no Excel.</li>
 </ul>
@@ -132,7 +138,8 @@ HELP = {
   <li><b>Tags:</b> saves the genre inside the track and removes website names (e.g. <code>www.djsoundtop.com</code>)
       from the title, album and comments.</li>
   <li><b>Cover art</b> (option <i>Add cover art</i>): tracks without a cover get the release's cover (Deezer and, with
-      the key, Discogs). An existing cover is never replaced. In rekordbox, use <i>Reload Tag</i> to see it.</li>
+      the key, Discogs). An existing cover is never replaced. Under <i>Also on old tracks…</i>, you can include old
+      tracks without artwork; if nothing is found, they stay unchanged. In rekordbox, use <i>Reload Tag</i> to see it.</li>
   <li><b>Site covers</b> (option <i>Replace site covers</i>): takes out covers that are ads (e.g. djsoundtop) or generic
       (e.g. the Beatport logo) and looks for the real one. If it isn't found, the track is left without a cover. If a
       new site shows up, press <i>See repeated covers…</i> and tick its cover.</li>
@@ -151,9 +158,13 @@ HELP = {
 <h3>Useful options</h3>
 <ul>
   <li><b>Protected folders</b> (under Library): folders the app never touches, for example your own edits.</li>
-  <li><b>Only new tracks:</b> faster. Only sorts what arrived since last time (packs and new tracks, in any folder).
-      Tracks you already had are left alone. The first time you organize a folder, all of it is sorted. Now and then
-      organize without this option to tidy everything.</li>
+  <li><b>Only new tracks:</b> becomes available after the first completed full organize of this library. Normally it
+      only sorts later arrivals. Under <i>Also on old tracks…</i>, choose independently which steps to repeat on old
+      tracks: genre sorting, duplicate removal, online genre lookup, BPM sorting, writing genre tags, cleaning
+      website names from tags, adding missing art, or replacing site covers. Every choice starts off and requires its
+      main step to be on. Genre and BPM sorting can move tracks; duplicates can enter quarantine; replacing site
+      covers can leave a track without art. Use Preview and back up first. Duplicate comparison may read every
+      track, but will not change old ones unless selected.</li>
   <li><b>Report:</b> shows tracks with problems, without changing anything: no artist or title, no genre,
       lower-quality MP3 or very short. Opens in Excel.</li>
 </ul>

@@ -91,6 +91,14 @@ class Options:
     site_covers: bool = False  # covers that are a site's ad or generic store art are taken out and the real one looked up
     site_names: bool = False  # tracks you already had lose the download site from their file name (asked first)
     only_new: bool = False  # only _entrada and tracks never seen before; the rest of the library is left as it is
+    organize_all: bool = False  # per-step overrides of only_new; ineffective when the corresponding step is off
+    dedupe_all: bool = False
+    online_all: bool = False
+    bpm_all: bool = False
+    write_tags_all: bool = False
+    clean_sites_all: bool = False
+    covers_all: bool = False
+    site_covers_all: bool = False
     protected: list = field(default_factory=list)  # folders (absolute paths) the app never reads, moves or edits
 
 
@@ -102,14 +110,23 @@ class Busy(Exception):
     pass
 
 
-def data_dir_for(root):
+def data_dir_for(root, create=True):
     """Caches and logs live in %APPDATA%, not in the music folder (which may be shared on Soulseek)."""
     canon = os.path.normcase(os.path.realpath(root))  # d:\ == D:\
     tag = hashlib.sha1(canon.encode("utf-8")).hexdigest()[:12]
     safe = re.sub(r"[^\w.-]+", "_", os.path.basename(canon.rstrip("\\/")) or "raiz")[:40]
     d = os.path.join(APP_DIR, "bibliotecas", f"{safe}-{tag}")
-    os.makedirs(os.path.join(d, "execucoes"), exist_ok=True)
+    if create:
+        os.makedirs(os.path.join(d, "execucoes"), exist_ok=True)
     return d
+
+
+def has_completed_full_run(root):
+    """Read-only eligibility check for the Only new tracks control."""
+    if not root or not os.path.isdir(root):
+        return False
+    inv = _read_json(os.path.join(data_dir_for(root, create=False), INVENTORY), None)
+    return isinstance(inv, dict) and bool(inv.get("full_done", True))
 
 
 def _write_json(path, obj):
@@ -424,7 +441,9 @@ class Organizer:
             if not names:
                 continue
             g = self.plan_genre(p, info)
-            dst_dir = os.path.dirname(p) if self.in_place(p, g) else self.target_dir(g)
+            # With Only new on, the separate old-name option must not silently reorganize old tracks.
+            rename_only = group is sites and self.only_new and not self.opts.organize_all
+            dst_dir = os.path.dirname(p) if rename_only or self.in_place(p, g) else self.target_dir(g)
             for name in names:  # the first one that is free
                 key = os.path.normcase(os.path.join(dst_dir, name))
                 if self.name_usable(p, dst_dir, name) and key not in planned:
@@ -556,6 +575,9 @@ class Organizer:
     def _in_scope(self, p):
         """'Only new tracks': _entrada and the tracks never seen before (where they went during this run)."""
         return not self.only_new or self._in_inbox(p) or os.path.normcase(p) in self._fresh
+
+    def _step_scope(self, p, all_tracks=False):
+        return all_tracks or self._in_scope(p)
 
     def _walk(self, base=None):
         """os.walk of the library without protected folders, transfers in progress and the root-level '_' folders
@@ -836,7 +858,8 @@ class Organizer:
         return normalize_genre(info["genre"]) or g or genre_from_folder(path, pack) or NO_GENRE
 
     def step_organize(self):
-        files = [p for p in self.audio_files() if self._in_scope(p)]
+        files = [p for p in self.audio_files() if self._step_scope(p, self.opts.organize_all)
+                 or self.opts.site_names]
         infos = self._read_all(files, "organize")
         inbox_names, outside, sites = self.rename_plan(files, infos)
         self._pending -= {os.path.normcase(p) for p in files if p not in outside}  # nothing to ask about them
@@ -852,6 +875,11 @@ class Organizer:
         names = {**inbox_names, **outside, **sites}
         for i, p in enumerate(files, 1):
             self._tick("organize", i, len(files), os.path.basename(p))
+            if not self._step_scope(p, self.opts.organize_all):
+                name = sites.get(p)  # explicit old-name option only; never move it to another folder
+                if name and self.move(p, os.path.dirname(p), name):
+                    self.report["site_names"] += 1
+                continue
             if infos[p]["unreadable"] and not self._in_inbox(p):
                 # damaged tags: we can't tell its genre, so it stays where it is (it may have been placed by hand)
                 self.report["unreadable"] += 1
@@ -919,11 +947,12 @@ class Organizer:
                 groups[key].append((p, info["duration"]))
         out = []
         for v in groups.values():
-            if len(v) > 1 and any(self._in_scope(p) for p, _ in v):
+            if len(v) > 1 and any(self._step_scope(p, self.opts.dedupe_all) for p, _ in v):
                 ranked = sorted(v, key=lambda x: self._score(x[0], x[1], infos[x[0]]["title"]), reverse=True)
                 # only new: an old copy is never removed (the rest of the library is left as it is), even if the
                 # new one is better; a full run sorts that out
-                losers = [p for p in self._losers(ranked, infos) if self._in_scope(p) and not self.left_alone(p)]
+                losers = [p for p in self._losers(ranked, infos)
+                          if self._step_scope(p, self.opts.dedupe_all) and not self.left_alone(p)]
                 self.dup_best.update((p, ranked[0][0]) for p in losers)
                 out += losers
         return out
@@ -948,11 +977,12 @@ class Organizer:
             self.errors.append(t("err.online_skipped"))
             return
         base = self.target_dir(NO_GENRE)
-        files = [p for p in self.audio_files(base) if self._in_scope(p)] if os.path.isdir(base) else []
+        files = [p for p in self.audio_files(base) if self._step_scope(p, self.opts.online_all)] if os.path.isdir(base) else []
         try:
             for i, p in enumerate(files, 1):
                 self._tick("online", i, len(files), os.path.basename(p))
                 info = read_info(p)
+                write_genre = self.opts.write_tags and self._step_scope(p, self.opts.write_tags_all)
                 okey = self.override_key(p, info)
                 if info["unreadable"] or self.overrides.get(okey) == NO_GENRE:
                     continue
@@ -966,7 +996,7 @@ class Organizer:
                 self._write_log("genero", dst, g, src, okey, self.overrides.get(okey, ""))
                 self.overrides[okey] = g
                 self.report[f"online|{g}"] += 1
-                if self.opts.write_tags:
+                if write_genre:
                     try:
                         self._edit_tags(dst, genre=g)  # the tag is what other apps (rekordbox) read
                     except Exception as e:
@@ -997,7 +1027,7 @@ class Organizer:
                             hit, value = self._cached_bpm(p)
                             if os.path.basename(d) != self.names["bpm_unknown"] or not hit or value:
                                 files.append(p)
-        return [p for p in files if self._in_scope(p) and not self.left_alone(p)]
+        return [p for p in files if self._step_scope(p, self.opts.bpm_all) and not self.left_alone(p)]
 
     def _cached_bpm(self, p):
         try:
@@ -1064,11 +1094,14 @@ class Organizer:
         comes out (with site_covers) and stays out even when no real cover is found."""
         token = self.keys.get("discogs_token", "")
         sources = [Deezer(self.data, self.cancel)] + ([Discogs(self.data, token, self.cancel)] if token else [])
-        files = [p for p in self.audio_files() if self._in_scope(p)]
+        files = [p for p in self.audio_files() if self._in_scope(p)
+                 or (self.opts.covers and self.opts.covers_all)
+                 or (self.opts.site_covers and self.opts.site_covers_all)]
         infos = self._read_all(files, "covers")
-        bad = self.site_cover_map(files, infos) if self.opts.site_covers else {}
+        bad = self.site_cover_map([p for p in files if self._step_scope(p, self.opts.site_covers_all)], infos) if self.opts.site_covers else {}
         todo = [p for p in files if p in bad
-                or (self.opts.covers and not infos[p]["unreadable"] and not infos[p]["cover"])]
+                or (self.opts.covers and self._step_scope(p, self.opts.covers_all)
+                    and not infos[p]["unreadable"] and not infos[p]["cover"])]
         site = SiteCovers(MARKED_COVERS)
         try:
             for i, p in enumerate(todo, 1):
@@ -1181,15 +1214,20 @@ class Organizer:
         return repeated(covers(), SiteCovers(MARKED_COVERS))
 
     def step_tags(self):
-        files = [p for p in self.audio_files() if self._in_scope(p)]
+        files = [p for p in self.audio_files() if self._in_scope(p)
+                 or (self.opts.write_tags and self.opts.write_tags_all)
+                 or (self.opts.clean_sites and self.opts.clean_sites_all)]
         for i, p in enumerate(files, 1):
             self._tick("tags", i, len(files), os.path.basename(p))
             try:
                 info = read_info(p)
                 if info["unreadable"]:
                     continue  # damaged tags: never write into them
-                genre, key = self._genre_decision(p, info["genre"]) if self.opts.write_tags else (None, None)
-                clean = bool(self.opts.clean_sites and clean_sites(p, write=False))
+                genre, key = (self._genre_decision(p, info["genre"])
+                              if self.opts.write_tags and self._step_scope(p, self.opts.write_tags_all)
+                              else (None, None))
+                clean = bool(self.opts.clean_sites and self._step_scope(p, self.opts.clean_sites_all)
+                             and clean_sites(p, write=False))
                 if genre is None and not clean:
                     continue
                 g, s = self._edit_tags(p, genre=genre, clean=clean)
@@ -1292,31 +1330,34 @@ class Organizer:
         files = list(self.audio_files())
         self.snapshot = self.library_snapshot(files)
         infos = self._read_all(files, "preview")  # all of them: duplicates are looked for in the whole library
-        inbox_names, outside, sites = self.rename_plan([p for p in files if self._in_scope(p)], infos)
+        inbox_names, outside, sites = self.rename_plan(
+            [p for p in files if self._step_scope(p, self.opts.organize_all) or self.opts.site_names], infos)
         for p, info in infos.items():
-            if not self._in_scope(p):
-                continue
-            if info["unreadable"] and not self._in_inbox(p):
-                rep["unreadable"] += 1
-                continue
-            g = self.plan_genre(p, info)
-            name = inbox_names.get(p)
-            if not self.in_place(p, g) and self.left_alone(self.target_dir(g)):
-                rep["protected_target"] += 1  # Organize leaves it where it is
-                continue
             dst = p
-            if not self.in_place(p, g):
-                rep[f"to_move|{self.label(g)}"] += 1
-                if name:
+            if self._step_scope(p, self.opts.organize_all):
+                if info["unreadable"] and not self._in_inbox(p):
+                    rep["unreadable"] += 1
+                    continue
+                g = self.plan_genre(p, info)
+                name = inbox_names.get(p)
+                if not self.in_place(p, g) and self.left_alone(self.target_dir(g)):
+                    rep["protected_target"] += 1  # Organize leaves it where it is
+                elif not self.in_place(p, g):
+                    rep[f"to_move|{self.label(g)}"] += 1
+                    if name:
+                        rep["rename_pending"] += 1
+                    dst = os.path.join(self.target_dir(g), name or os.path.basename(p))
+                    self.plan.append(("move", p, dst))
+                elif name:
                     rep["rename_pending"] += 1
-                dst = os.path.join(self.target_dir(g), name or os.path.basename(p))
-                self.plan.append(("move", p, dst))
-            elif name:
-                rep["rename_pending"] += 1
-                dst = os.path.join(os.path.dirname(p), name)
-                self.plan.append(("move", p, dst))
+                    dst = os.path.join(os.path.dirname(p), name)
+                    self.plan.append(("move", p, dst))
+            elif p in sites:
+                dst = os.path.join(os.path.dirname(p), sites[p])
             # the tag step runs after the move, on the new place (decided from the path and the tag text only)
-            new_genre = self._genre_decision(dst, info["genre"])[0] if self.opts.write_tags else None
+            new_genre = (self._genre_decision(dst, info["genre"])[0]
+                         if self.opts.write_tags and self._step_scope(p, self.opts.write_tags_all)
+                         and not info["unreadable"] else None)
             if new_genre is not None:
                 rep["tags_pending"] += 1
                 self.plan.append(("tags", p, new_genre))
@@ -1337,15 +1378,17 @@ class Organizer:
         if self.opts.bpm_folders:
             rep["bpm_pending"] = len(self._loose_unsorted())
         if self.opts.covers:
-            bare = [p for p, i in infos.items() if self._in_scope(p) and not i["unreadable"] and not i["cover"]]
+            bare = [p for p, i in infos.items() if self._step_scope(p, self.opts.covers_all)
+                    and not i["unreadable"] and not i["cover"]]
             rep["covers_pending"] = len(bare)
             self.plan += [("cover", p, t("plan.cover_detail")) for p in bare]
         if self.opts.site_covers:
-            bad = self.site_cover_map([p for p in files if self._in_scope(p)], infos)
+            bad = self.site_cover_map([p for p in files if self._step_scope(p, self.opts.site_covers_all)], infos)
             rep["site_covers_pending"] = len(bad)
             self.plan += [("site_cover", p, t("plan.cover_detail")) for p in bad]
         if self.opts.online and os.path.isdir(self.target_dir(NO_GENRE)):
-            rep["online_pending"] = sum(1 for p in self.audio_files(self.target_dir(NO_GENRE)) if self._in_scope(p))
+            rep["online_pending"] = sum(1 for p in self.audio_files(self.target_dir(NO_GENRE))
+                                        if self._step_scope(p, self.opts.online_all))
         inbox = os.path.join(self.root, INBOX)
         if os.path.isdir(inbox):
             rep["junk_pending"] = sum(1 for dp, _, fs in self._walk(inbox) for n in fs  # same filters as the run

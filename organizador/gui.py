@@ -8,7 +8,7 @@ from dataclasses import asdict
 
 from PySide6.QtCore import QObject, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QThread, QTimer, Signal, Property
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
-from PySide6.QtWidgets import (QAbstractButton, QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
                                QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
@@ -16,7 +16,7 @@ from . import __version__, config, termos
 from .capas import SiteCovers
 from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
 from .pipeline import (APP_DIR, MARKED_COVERS, Busy, Cancelled, Options, Organizer, library_lock, library_report, list_runs,
-                       protectable, purge_quarantine, too_broad, undo_until)
+                       has_completed_full_run, protectable, purge_quarantine, too_broad, undo_until)
 from .theme import C, QSS
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
@@ -24,6 +24,8 @@ STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["ded
          ("online", ["online"]), ("bpm_folders", ["bpm"]), ("write_tags", ["tags"]), ("covers", ["covers"])]
 EXTRA_OPTIONS = ["only_new", "merge_versions", "clean_sites", "families", "rename_packs", "site_names",
                  "site_covers", "musicbrainz", "delete_archives"]
+OLD_SCOPE = ("organize_all", "dedupe_all", "online_all", "bpm_all", "write_tags_all",
+             "clean_sites_all", "covers_all", "site_covers_all")
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-icone.png")  # symbol without tile: reads bigger
 LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recursos", "groovewizard-simbolo.png")  # no tile: sits on the dark header
 
@@ -362,17 +364,27 @@ class Window(QMainWindow):
 
         c, lay = card(t("card.steps"))
         self.toggles = {}
+        self.scope_options = {field: getattr(opts, field) for field in OLD_SCOPE}
         for field, _ in STEPS:
             if not field.startswith("_"):
                 self.toggles[field] = self._option(lay, field, getattr(opts, field))
         lay.addWidget(QLabel(t("card.more"), objectName="cardTitle"))
         for field in EXTRA_OPTIONS:
             self.toggles[field] = self._option(lay, field, getattr(opts, field))
+            if field == "only_new":
+                self.new_only_hint = QLabel(t("scope.first_run"), objectName="hint", wordWrap=True)
+                lay.addWidget(self.new_only_hint)
+                self.btn_old_scope = QPushButton(cursor=Qt.PointingHandCursor)
+                self._update_old_scope_button()
+                self.btn_old_scope.clicked.connect(self.edit_old_scope)
+                lay.addWidget(self.btn_old_scope, 0, Qt.AlignLeft)
             if field == "site_covers":
                 self.btn_covers = QPushButton(t("btn.covers"), objectName="ghost", cursor=Qt.PointingHandCursor,
                                               toolTip=t("btn.covers_tip"))
                 self.btn_covers.clicked.connect(lambda: self.start("covers_scan"))
                 lay.addWidget(self.btn_covers, 0, Qt.AlignLeft)
+        self.folder.textChanged.connect(self._update_new_only_availability)
+        self._update_new_only_availability()
         ll.addWidget(c)
         ll.addStretch()
         self.steps_card, self.left_lay = c, ll
@@ -667,20 +679,56 @@ class Window(QMainWindow):
         if os.path.normcase(d) not in {os.path.normcase(self.protected.item(i).text()) for i in range(self.protected.count())}:
             self.protected.addItem(d)
 
+    def _update_old_scope_button(self):
+        self.btn_old_scope.setText(t("scope.button", n=sum(self.scope_options.values())))
+        self.btn_old_scope.setAccessibleName(self.btn_old_scope.text())
+
+    def _update_new_only_availability(self):
+        available = has_completed_full_run(self.folder.text().strip())
+        self.toggles["only_new"].setEnabled(available and not (self.thread and self.thread.isRunning()))
+        self.new_only_hint.setVisible(not available)
+
+    def _old_scope_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(t("scope.title"))
+        dialog.setMinimumWidth(480)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(t("scope.hint"), objectName="hint", wordWrap=True))
+        boxes = {}
+        for field in OLD_SCOPE:
+            boxes[field] = QCheckBox(t("scope." + field))
+            boxes[field].setChecked(self.scope_options[field])
+            layout.addWidget(boxes[field])
+        layout.addWidget(QLabel(t("scope.warning"), objectName="hint", wordWrap=True))
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        return dialog, boxes
+
+    def edit_old_scope(self):
+        dialog, boxes = self._old_scope_dialog()
+        if dialog.exec() == QDialog.Accepted:
+            self.scope_options = {field: box.isChecked() for field, box in boxes.items()}
+            self._update_old_scope_button()
+            self.current()
+
     def current(self):
         opts = Options(root=self.folder.text().strip(), folder_lang=self.folder_lang,
                        protected=[self.protected.item(i).text() for i in range(self.protected.count())],
-                       **{f: tg.isChecked() for f, tg in self.toggles.items()})
+                        **{f: tg.isChecked() for f, tg in self.toggles.items()}, **self.scope_options)
         keys = {"discogs_token": self.discogs.text().strip(), "lastfm_api_key": self.lastfm.text().strip()}
         config.save(opts, keys)
         return opts, keys
 
     def busy(self, on):
         for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_quarantine, self.btn_report, self.btn_plan,
-                  self.btn_covers, self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
+                  self.btn_covers, self.btn_old_scope, self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
                   self.lang_combo, *self._key_controls, *self.toggles.values()):
             w.setEnabled(not on)
         self.btn_cancel.setEnabled(on)
+        if not on:
+            self._update_new_only_availability()
 
     def reset_rows(self, opts, kind):
         for field, r in self.step_rows:
@@ -710,6 +758,12 @@ class Window(QMainWindow):
             self.folder.setFocus()
             return
         if kind == "run" and QMessageBox.question(self, t("btn.run"), t("msg.run_confirm", root=opts.root)) != QMessageBox.Yes:
+            return
+        risky_old = (opts.organize_all or (opts.dedupe and opts.dedupe_all)
+                     or (opts.online and opts.online_all) or (opts.bpm_folders and opts.bpm_all)
+                     or (opts.site_covers and opts.site_covers_all))
+        if kind == "run" and opts.only_new and risky_old and QMessageBox.question(
+                self, t("scope.title"), t("msg.old_scope_confirm")) != QMessageBox.Yes:
             return
         self.reset_rows(opts, kind)
         self.current_row = None

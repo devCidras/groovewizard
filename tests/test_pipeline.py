@@ -657,6 +657,200 @@ def test_covers():
         pl.Discogs, pl.Deezer = real
 
 
+def test_covers_all_with_only_new():
+    """The cover override reaches old bare tracks, without widening any other step."""
+    import struct
+    import zlib
+    from organizador.tags import read_info, set_cover
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff))
+
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00")) + chunk(b"IEND", b""))
+    root = os.path.join(TMP, "capas-todas")
+    techno = os.path.join(root, "Techno")
+    old = make(os.path.join(techno, "Old.wav"), 1, "A", "Old", "Techno")
+    missing = make(os.path.join(techno, "Missing.wav"), 2, "B", "Missing", "Techno")
+    has = make(os.path.join(techno, "Has.wav"), 3, "C", "Has", "Techno")
+    protected_dir = os.path.join(root, "Protegida")
+    protected = make(os.path.join(protected_dir, "Private.wav"), 4, "D", "Private", "Techno")
+    set_cover(has, png)
+    base = pl.Options(root=root, extract=False, dedupe=False, online=False, bpm_folders=False,
+                      write_tags=False, clean_sites=False, covers=False, families=False,
+                      protected=[protected_dir])
+    rep, errs = pl.Organizer(base).run()  # build the inventory with a completed full run
+    assert not errs, (rep, errs)
+    moved_old = os.path.join(root, "Deslocada", "Old.wav")
+    os.makedirs(os.path.dirname(moved_old))
+    os.rename(old, moved_old)  # still known by content; Only new must not re-sort it
+    new = make(os.path.join(root, "Solta", "New.wav"), 5, "E", "New", "Techno")
+    base.only_new = base.covers = True
+    org = pl.Organizer(base)
+    assert not org.is_new(moved_old) and org.is_new(new)
+    assert org.preview()["covers_pending"] == 1  # old behaviour remains the default
+    base.covers_all = True
+    org = pl.Organizer(base)
+    assert org.preview()["covers_pending"] == 3
+    assert {p for kind, p, _ in org.plan if kind == "cover"} == {moved_old, missing, new}
+    assert not any(kind == "move" and p == moved_old for kind, p, _ in org.plan)
+
+    asked = []
+
+    class FakeDeezer:
+        def __init__(self, *args):
+            pass
+
+        def cover(self, artist, title):
+            asked.append(title)
+            return "" if title == "Missing" else "https://example.invalid/cover.png"
+
+        def image(self, url, folder):
+            return png
+
+        def save(self):
+            pass
+
+    real = pl.Deezer
+    pl.Deezer = FakeDeezer
+    try:
+        rep, errs = pl.Organizer(base).run()
+    finally:
+        pl.Deezer = real
+    new_place = os.path.join(techno, "New.wav")
+    assert not errs and rep["covers_added"] == 2, (rep, errs)
+    assert set(asked) == {"Old", "Missing", "New"}, asked
+    assert os.path.exists(moved_old) and not os.path.exists(new) and os.path.exists(new_place)
+    assert read_info(moved_old)["cover"] and read_info(new_place)["cover"]
+    assert not read_info(missing)["cover"] and read_info(has)["cover"]
+    assert not read_info(protected)["cover"]
+
+
+def test_old_step_scopes():
+    """Old-track opt-ins are independent: a tag repair must not also move or dedupe old files."""
+    from organizador.tags import read_info
+
+    root = os.path.join(TMP, "old-step-tags")
+    here = os.path.join(root, "Techno")
+    genre = make(os.path.join(here, "Genre.wav"), 1, "A", "Genre", "Techno")
+    site = make(os.path.join(here, "Site.wav"), 2, "B", "Site", "Techno")
+    opts = pl.Options(root=root, extract=False, dedupe=False, online=False, bpm_folders=False,
+                      write_tags=False, clean_sites=False, families=False)
+    assert not pl.has_completed_full_run(root)
+    assert not pl.Organizer(opts).run()[1]
+    assert pl.has_completed_full_run(root)
+    f = WAVE(genre)
+    f.tags.setall("TCON", [TCON(encoding=3, text=["House"])])
+    f.save()
+    f = WAVE(site)
+    f.tags.add(TALB(encoding=3, text=["www.djsoundtop.com"]))
+    f.save()
+    opts.only_new = opts.write_tags = opts.clean_sites = True
+    assert not pl.Organizer(opts).run()[1]
+    assert raw_genre(genre) == "House" and "djsoundtop.com" in str(WAVE(site).tags)
+    opts.write_tags_all = True
+    org = pl.Organizer(opts)
+    org.preview()
+    assert ("tags", genre, "Techno") in org.plan and not any(k == "move" for k, _, _ in org.plan)
+    assert not pl.Organizer(opts).run()[1]
+    assert raw_genre(genre) == "Techno" and "djsoundtop.com" in str(WAVE(site).tags)
+    opts.write_tags_all, opts.clean_sites_all = False, True
+    assert not pl.Organizer(opts).run()[1]
+    assert "djsoundtop.com" not in str(WAVE(site).tags) and os.path.exists(genre)
+
+    root = os.path.join(TMP, "old-step-organize")
+    old = make(os.path.join(root, "Techno", "Old - www.djsoundtop.com.wav"), 1, "C", "Old", "Techno")
+    opts = pl.Options(root=root, extract=False, dedupe=False, online=False, bpm_folders=False,
+                      write_tags=False, clean_sites=False, families=False)
+    assert not pl.Organizer(opts).run()[1]
+    displaced = os.path.join(root, "Loose", os.path.basename(old))
+    os.makedirs(os.path.dirname(displaced))
+    os.rename(old, displaced)
+    opts.only_new = opts.site_names = True
+    org = pl.Organizer(opts)
+    assert not org.is_new(displaced)
+    org.preview()
+    assert any(k == "site_name" and p == displaced for k, p, _ in org.plan)
+    assert not any(k == "move" and p == displaced for k, p, _ in org.plan)
+    assert not pl.Organizer(opts, ask_rename=lambda items, kind="new": True).run()[1]
+    renamed = os.path.join(root, "Loose", "Old.wav")
+    assert os.path.exists(renamed) and not os.path.exists(old)
+    opts.site_names, opts.organize_all = False, True
+    org = pl.Organizer(opts)
+    org.preview()
+    assert any(k == "move" and p == renamed for k, p, _ in org.plan)
+    assert not pl.Organizer(opts).run()[1]
+    assert os.path.exists(os.path.join(root, "Techno", "Old.wav"))
+
+    root = os.path.join(TMP, "old-step-dedupe")
+    original = make(os.path.join(root, "House", "D - Tune (Original Mix).wav"), 1, "D", "Tune (Original Mix)", "House")
+    extended = make(os.path.join(root, "House", "D - Tune (Extended Mix).wav"), 2, "D", "Tune (Extended Mix)", "House")
+    opts = pl.Options(root=root, extract=False, dedupe=False, online=False, bpm_folders=False,
+                      write_tags=False, clean_sites=False, families=False)
+    assert not pl.Organizer(opts).run()[1]
+    opts.only_new = opts.dedupe = True
+    assert pl.Organizer(opts).preview()["dups_pending"] == 0
+    opts.dedupe_all = True
+    assert pl.Organizer(opts).preview()["dups_pending"] == 1
+    assert not pl.Organizer(opts).run()[1]
+    assert not os.path.exists(original) and os.path.exists(extended)
+
+    root = os.path.join(TMP, "old-step-online")
+    old = make(os.path.join(root, "Sem Genero", "E - Unknown.wav"), 1, "E", "Unknown")
+    opts = pl.Options(root=root, extract=False, dedupe=False, online=False, bpm_folders=False,
+                      write_tags=False, clean_sites=False, families=False)
+    assert not pl.Organizer(opts).run()[1]
+    opts.only_new = opts.online = opts.write_tags = True
+    assert pl.Organizer(opts).preview()["online_pending"] == 0
+    opts.online_all = True
+    assert pl.Organizer(opts).preview()["online_pending"] == 1
+
+    class FakeLookup:
+        available = True
+        problems = []
+
+        def __init__(self, *args):
+            pass
+
+        def genre(self, artist, title):
+            return "Techno", "test"
+
+        def save(self):
+            pass
+
+    real = pl.Lookup
+    pl.Lookup = FakeLookup
+    try:
+        assert not pl.Organizer(opts).run()[1]
+    finally:
+        pl.Lookup = real
+    online_moved = os.path.join(root, "Techno", "E - Unknown.wav")
+    assert not os.path.exists(old) and os.path.exists(online_moved)
+    assert not raw_genre(online_moved), "online_all alone must not also write an old track's genre tag"
+    opts.online = False
+    opts.write_tags_all = True
+    assert not pl.Organizer(opts).run()[1]
+    assert raw_genre(online_moved) == "Techno"
+
+    root = os.path.join(TMP, "old-step-bpm")
+    old = make(os.path.join(root, "Sem Genero", "F - Beat.wav"), 1, "F", "Beat")
+    opts = pl.Options(root=root, extract=False, dedupe=False, online=False, bpm_folders=False,
+                      write_tags=False, clean_sites=False, families=False)
+    assert not pl.Organizer(opts).run()[1]
+    opts.only_new = opts.bpm_folders = True
+    assert pl.Organizer(opts).preview()["bpm_pending"] == 0
+    opts.bpm_all = True
+    assert pl.Organizer(opts).preview()["bpm_pending"] == 1
+    real = pl.bpm_mod.bpm_of
+    pl.bpm_mod.bpm_of = lambda p: 125
+    try:
+        assert not pl.Organizer(opts).run()[1]
+    finally:
+        pl.bpm_mod.bpm_of = real
+    assert not os.path.exists(old) and os.path.exists(os.path.join(root, "Sem Genero", "BPM 122-128", "F - Beat.wav"))
+
+
 def test_site_covers():
     """A site's ad comes out (the real cover is put in when found), real covers stay, Undo puts the ad back."""
     from PySide6.QtCore import QBuffer, QIODevice
@@ -736,6 +930,13 @@ def test_site_covers():
         # unticked in the list: left alone
         pl.Organizer(opts, skip=[a, b, d]).run()
         assert pictures(a) == [ad]
+        opts.only_new = True
+        assert pl.Organizer(opts).preview()["site_covers_pending"] == 0
+        opts.site_covers_all = True
+        assert pl.Organizer(opts).preview()["site_covers_pending"] == 4
+        rep, errs = pl.Organizer(opts, keys={"discogs_token": "x"}).run()
+        assert not errs and rep["site_covers_out"] == 3, (rep, errs)
+        assert [pictures(p) for p in (a, b, c, d, e)] == [[found], [], [logo], [logo], [ad]]
         many = [(ad, str(i)) for i in range(6)] + [(ad_small, "x"), (logo, "y")]
         groups = capas.repeated(many, capas.SiteCovers("none"))
         assert len(groups) == 1 and groups[0][2] == 6 and groups[0][3] == 6, groups
@@ -1096,6 +1297,22 @@ def test_audit_7z_update_and_dialogs():
     window.log.setPlainText("kept log")
     window.build()  # same rebuild used by a language change
     assert not window.btn_plan.isHidden() and window.log.toPlainText() == "kept log"
+    fresh_root = os.path.join(TMP, "gui-first-run")
+    make(os.path.join(fresh_root, "Techno", "Fresh.wav"), 1, "A", "Fresh", "Techno")
+    window.folder.setText(fresh_root)
+    assert not window.toggles["only_new"].isEnabled()
+    assert not pl.Organizer(pl.Options(root=fresh_root, extract=False, dedupe=False, online=False,
+                                       bpm_folders=False, write_tags=False, clean_sites=False,
+                                       families=False)).run()[1]
+    window._update_new_only_availability()
+    assert window.toggles["only_new"].isEnabled()
+    window.toggles["only_new"].setChecked(True)
+    window.scope_options["write_tags_all"] = True
+    assert window.current()[0].write_tags_all
+    window.folder.setText(os.path.join(TMP, "gui-other-library"))
+    assert not window.toggles["only_new"].isEnabled() and window.toggles["only_new"].isChecked()
+    window.folder.setText(fresh_root)
+    assert window.toggles["only_new"].isEnabled() and window.toggles["only_new"].isChecked()
     plan.close(), history.close(), window.close()
 
 
@@ -1210,6 +1427,8 @@ if __name__ == "__main__":
         test_unticked_on_first_run_stay_known()
         test_same_size_new_track()
         test_covers()
+        test_covers_all_with_only_new()
+        test_old_step_scopes()
         test_review_fixes()
         test_site_covers()
         test_bpm()
