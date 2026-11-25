@@ -376,7 +376,7 @@ def test_protected_and_skip():
     except ValueError:
         pass
     os.remove(os.path.join(root, "novo.wav"))
-    rep, errs = pl.Organizer(opts, skip=[keep, untick]).run()
+    rep, errs = pl.Organizer(opts, skip=[keep, untick]).run(expect=snap)
     assert rep["dups_trashed"] == 1 and not os.path.exists(dup) and os.path.exists(keep)
 
     # a protected target folder: nothing is moved into it
@@ -1163,6 +1163,26 @@ def test_audit_pipeline_and_undo():
     org._log.close()
     assert pl.list_runs(root)[0][1].get("mover", 0) == 0
 
+    # A sync client may replace the published copy before the source deletion fails.
+    foreign = os.path.join(root, "other-download")
+    with open(foreign, "wb") as fh:
+        fh.write(b"another download")
+    dst = os.path.join(dst_dir, "A.wav")
+    def replaced_then_locked(path):
+        if path == src:
+            os.replace(foreign, dst)
+            raise PermissionError("locked")
+        return real_remove(path)
+    rename_calls[0] = 0
+    with patch.object(pl.os, "rename", side_effect=cross_rename), patch.object(pl.os, "remove", side_effect=replaced_then_locked):
+        try:
+            pl._move_file(src, dst)
+            raise AssertionError("source deletion unexpectedly succeeded")
+        except PermissionError:
+            pass
+    with open(dst, "rb") as fh:
+        assert fh.read() == b"another download" and os.path.exists(src)
+
     # A read-only destination may reject the edit, but no full .ck- copy is left behind.
     root = os.path.join(TMP, "readonly")
     ro = make(os.path.join(root, "House", "House", "A.wav"), 2, "A", "T", "House", "djsoundtop.com")
@@ -1226,6 +1246,57 @@ def test_audit_pipeline_and_undo():
     with open(log, "wb") as fh:
         fh.write('mover,"a","b"\nquarentena,"ç'.encode("utf-8")[:-1])
     assert pl._read_log_rows(log) == [["mover", "a", "b"]]
+
+
+def test_gui_settings():
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QApplication, QPushButton
+    from organizador import config, gui
+
+    app = QApplication.instance() or QApplication([])
+    profile = os.path.join(TMP, "gui-settings-profile")
+    language = gui.lang()
+    with patch.object(config, "APP_DIR", profile), patch.object(config, "PATH", os.path.join(profile, "config.json")):
+        untouched, first, second = (gui.Window() for _ in range(3))
+        first.folder.setText(os.path.join(TMP, "library"))
+        first.protected.addItem(os.path.join(TMP, "library", "sets"))
+        first.close()
+        second.toggles["covers"].setChecked(True)
+        second.close()
+        with patch.object(config, "save", side_effect=AssertionError("unchanged window wrote settings")):
+            untouched.close()
+        w = gui.Window()
+        assert w.folder.text() == os.path.join(TMP, "library") and w.protected.count() == 1
+        assert w.toggles["covers"].isChecked()
+
+        w._show_update({"version": "2.0", "page": "", "installer": None})
+        later = next(b for b in w.banner.findChildren(QPushButton) if b.text() == gui.t("upd.later"))
+        later.click()
+        with patch("threading.Thread") as thread, patch("organizador.online.check_key", side_effect=[
+            ("ok", ""), ("invalid", "")
+        ]):
+            w.discogs.setText("old-key")
+            w.check_key("discogs", w.discogs)
+            old_request = thread.call_args.kwargs["target"]
+            w.lang_combo.setCurrentIndex(1 - w.lang_combo.currentIndex())
+            assert w.banner.isHidden()
+            w.discogs.setText("new-key")
+            w.check_key("discogs", w.discogs)
+            new_request = thread.call_args.kwargs["target"]
+            check, status = w._key_ui["discogs"]
+            old_request()
+            assert not check.isEnabled() and status.text() == gui.t("key.checking")
+            w.busy(True)
+            w.busy(False)
+            assert not check.isEnabled()
+            w.busy(True)
+            new_request()
+            assert status.text() == gui.t("key.invalid", detail="").strip() and not check.isEnabled()
+            w.busy(False)
+            assert check.isEnabled()
+        w.close()
+        assert config.load()[1]["discogs_token"] == "new-key"
+    gui.set_lang(language)
 
 
 def test_audit_7z_update_and_dialogs():
@@ -1314,6 +1385,57 @@ def test_audit_7z_update_and_dialogs():
     window.folder.setText(fresh_root)
     assert window.toggles["only_new"].isEnabled() and window.toggles["only_new"].isChecked()
     plan.close(), history.close(), window.close()
+
+
+def test_gui_preview_state():
+    from unittest.mock import patch
+    from PySide6.QtCore import QEventLoop, QTimer
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from organizador import gui
+    from organizador.janelas import PlanDialog
+
+    app = QApplication.instance() or QApplication([])
+    window = gui.Window()
+    root = os.path.join(TMP, "gui-preview-state")
+    make(os.path.join(root, "_entrada", "Fresh.wav"), 1, "A", "Fresh", "Techno")
+    window.folder.setText(root)
+    for toggle in window.toggles.values():
+        toggle.setChecked(False)
+
+    def preview():
+        loop = QEventLoop()
+        timeout = QTimer(singleShot=True)
+        timeout.timeout.connect(loop.quit)
+        window.btn_preview.click()
+        window.thread.finished.connect(loop.quit)
+        timeout.start(10000)
+        loop.exec()
+        assert timeout.isActive() and window.thread is None
+        app.processEvents()
+
+    preview()
+    assert window.stats_grid.count() and not window.btn_plan.isHidden()
+    assert window.rows["extract"].current == window.rows["dedupe_scan"].current == "off"
+    window.toggles["dedupe"].setChecked(True)
+    with patch.object(QMessageBox, "information"):
+        window.show_plan()
+    window.build()
+    assert window.btn_plan.isHidden()
+
+    preview()
+    make(os.path.join(root, "_entrada", "Late.wav"), 1, "B", "Late", "House")
+    with patch.object(PlanDialog, "exec", return_value=PlanDialog.Accepted), patch.object(QMessageBox, "information"):
+        window.show_plan()
+    window.build()
+    assert window.btn_plan.isHidden() and window.thread is None
+
+    preview()
+    with patch.object(gui.Organizer, "preview", side_effect=pl.Busy("busy")):
+        preview()
+    window.lang_combo.setCurrentIndex(1 - window.lang_combo.currentIndex())
+    assert window.btn_plan.isHidden() and window.stats_grid.count() == 0
+    assert window.status.text() == gui.t("status.stopped")
+    window.close()
 
 
 def test_deep_audit_regressions():
@@ -1408,6 +1530,39 @@ def test_deep_audit_regressions():
     assert not errors and os.path.exists(source) and not pl.list_runs(root), errors
 
 
+def test_concurrent_move_and_undo_conflicts():
+    from pathlib import Path
+    from unittest.mock import patch
+
+    root = os.path.join(TMP, "move-race")
+    original = Path(make(os.path.join(root, "original", "Song.wav"), 1))
+    org = pl.Organizer(pl.Options(root=root))
+    final_dir = Path(root, "final")
+    def arriving_file(src, dst):
+        Path(dst).write_bytes(b"separate download")
+        raise FileExistsError(dst)
+    with patch.object(pl.os, "rename", side_effect=arriving_file):
+        assert org.move(str(original), str(final_dir)) is None
+    org._log.close()
+    assert original.is_file() and (final_dir / original.name).read_bytes() == b"separate download"
+
+    root = os.path.join(TMP, "undo-chain")
+    original = Path(make(os.path.join(root, "in", "Song.wav"), 1))
+    other = Path(make(os.path.join(root, "in", "Other.wav"), 2))
+    org = pl.Organizer(pl.Options(root=root))
+    moved_other = org.move(str(other), os.path.join(root, "final"))
+    middle = Path(org.move(str(original), os.path.join(root, "unsorted")))
+    end = Path(org.move(str(middle), os.path.join(root, "final")))
+    org._log.close()
+    middle.write_bytes(b"user track")
+    _, errors = pl.undo_last(root)
+    assert errors and middle.read_bytes() == b"user track" and end.is_file() and not original.exists()
+    assert other.is_file() and not os.path.exists(moved_other)
+    middle.unlink()
+    _, errors = pl.undo_last(root)
+    assert not errors and original.is_file() and not end.exists() and not middle.exists()
+
+
 if __name__ == "__main__":
     try:
         test_rules()
@@ -1434,8 +1589,11 @@ if __name__ == "__main__":
         test_bpm()
         test_audit_names_config_and_online()
         test_audit_pipeline_and_undo()
+        test_gui_settings()
         test_audit_7z_update_and_dialogs()
+        test_gui_preview_state()
         test_deep_audit_regressions()
+        test_concurrent_move_and_undo_conflicts()
         print("ok")
     finally:
         if os.environ.get("GROOVEWIZARD_TEST_TMP"):

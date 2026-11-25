@@ -15,6 +15,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 import threading
 import time
 import zipfile
@@ -261,6 +262,37 @@ def _hide(path):
         ctypes.windll.kernel32.SetFileAttributesW(str(path), 0x2)  # FILE_ATTRIBUTE_HIDDEN
     except Exception:
         pass
+
+
+def _move_file(src, dst):
+    """On Windows rename fails if dst is occupied, including when publishing a cross-volume copy."""
+    try:
+        os.rename(src, dst)
+        return
+    except OSError as e:
+        if getattr(e, "winerror", None) != 17 and e.errno != errno.EXDEV:
+            raise
+
+    with tempfile.NamedTemporaryFile(dir=os.path.dirname(dst), suffix=".part", delete=False) as staging:
+        tmp = staging.name
+    try:
+        shutil.copy2(src, tmp)
+        copy_stat = os.stat(tmp)
+        os.rename(tmp, dst)
+        tmp = None
+        try:
+            os.remove(src)
+        except OSError:
+            try:
+                current = os.stat(dst)
+                if (os.path.samestat(copy_stat, current) and copy_stat.st_size == current.st_size
+                        and copy_stat.st_mtime_ns == current.st_mtime_ns):
+                    _remove_temp(dst)
+            except OSError:
+                pass  # the published copy moved or became inaccessible
+            raise
+    finally:
+        _remove_temp(tmp)
 
 
 class Organizer:
@@ -567,10 +599,11 @@ class Organizer:
     def _in_inbox(self, p):
         return os.path.normcase(p).startswith(os.path.normcase(os.path.join(self.root, INBOX)) + os.sep)
 
-    def left_alone(self, p):
+    def left_alone(self, p, *, include_unticked=False):
         """Inside a protected folder, or unticked in the preview list: never read, moved, renamed or edited."""
         k = os.path.normcase(p)
-        return k in self._skip or k in self._protected or any(k.startswith(d + os.sep) for d in self._protected)
+        return ((not include_unticked and k in self._skip) or k in self._protected
+                or any(k.startswith(d + os.sep) for d in self._protected))
 
     def _in_scope(self, p):
         """'Only new tracks': _entrada and the tracks never seen before (where they went during this run)."""
@@ -593,7 +626,6 @@ class Organizer:
         if self.left_alone(dst_dir):  # never into a protected folder: the track stays where it is
             self.errors.append(t("err.protected_target", path=src))
             return None
-        tmp = None
         try:
             os.makedirs(dst_dir, exist_ok=True)
             if not self.name_usable(src, dst_dir, name):
@@ -603,25 +635,10 @@ class Organizer:
             while os.path.exists(dst):
                 dst, i = f"{base} ({i}){ext}", i + 1
             self._write_log("mover", src, dst)  # before the move: a crash right after still leaves a record
-            try:
-                os.rename(src, dst)  # same drive; on Windows it fails instead of overwriting
-            except OSError as e:
-                if getattr(e, "winerror", None) != 17 and e.errno != errno.EXDEV:  # 17: not the same drive
-                    raise
-                tmp = f"{dst}.ck-{self.run_id}.part"  # our own name: safe to remove if the copy fails
-                shutil.copy2(src, tmp)
-                os.rename(tmp, dst)
-                tmp = None
-                os.remove(src)
+            _move_file(src, dst)
         except OSError as e:
             if "dst" in locals():
                 self._write_log("falhou", src, dst)
-                if tmp is None and os.path.exists(src) and os.path.exists(dst):
-                    _remove_temp(dst)  # cross-drive copy succeeded but deleting the source did not
-                # A cross-drive copy is not a move until the source is gone. Remove our destination on failure.
-                if os.path.exists(src) and os.path.exists(dst):
-                    _remove_temp(dst)
-            _remove_temp(tmp)
             self.errors.append(f"{src}: {e}")
             return None
         self._track_moves(src, dst)  # only after it really moved
@@ -676,11 +693,11 @@ class Organizer:
         finally:
             _remove_temp(tmp)
 
-    def audio_files(self, base=None):
+    def audio_files(self, base=None, *, include_unticked=False):
         for dp, _, files in self._walk(base):
             for n in files:
                 p = os.path.join(dp, n)
-                if is_audio(n) and not TEMP_COPY.search(n) and not self.left_alone(p):
+                if is_audio(n) and not TEMP_COPY.search(n) and not self.left_alone(p, include_unticked=include_unticked):
                     yield p
 
     def _read_all(self, files, step):
@@ -1307,7 +1324,8 @@ class Organizer:
         """Tracks and packs as they are now (path, size, modified): the review list only holds while this is unchanged
         (a download finishing after the Preview would otherwise be organized without ever being on the list)."""
         out = {("only_new", self.only_new)}  # another window finishing a first organize changes what Organize does
-        for p in list(files if files is not None else self.audio_files()) + self.pending_archives():
+        tracks = self.audio_files(include_unticked=True) if files is None else files
+        for p in list(tracks) + self.pending_archives():
             try:
                 st = os.stat(p)
                 out.add((os.path.normcase(p), st.st_size, st.st_mtime_ns))
@@ -1328,7 +1346,7 @@ class Organizer:
             rep["archives_pending"] = len(self.pending_archives())
         self._fresh = self._new_tracks()
         files = list(self.audio_files())
-        self.snapshot = self.library_snapshot(files)
+        self.snapshot = self.library_snapshot(None if self._skip else files)
         infos = self._read_all(files, "preview")  # all of them: duplicates are looked for in the whole library
         inbox_names, outside, sites = self.rename_plan(
             [p for p in files if self._step_scope(p, self.opts.organize_all) or self.opts.site_names], infos)
@@ -1561,7 +1579,7 @@ def _move_back(src, dst, errors, retry):
         return False
     try:
         os.makedirs(os.path.dirname(src), exist_ok=True)
-        shutil.move(dst, src)
+        _move_file(dst, src)
         return True
     except OSError as e:
         errors.append(f"{dst}: {e}")
@@ -1696,7 +1714,7 @@ def _undo_last(root, progress, cancel, protected=()):
     except FileNotFoundError:
         done = set()
     rep, errors, retry = Counter(), [], [False]
-    blocked_tag_paths = set()
+    blocked_paths = set()
     failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
     kinds = ("tags", "quarentena", "mover", "extraido", "genero", "capa", "capa_fora")
     todo = [(i, r) for i, r in enumerate(rows) if r[0] in kinds and len(r) > 2 and (r[1], r[2]) not in failed
@@ -1713,10 +1731,18 @@ def _undo_last(root, progress, cancel, protected=()):
                     raise Cancelled()
                 kind, a, b = r[:3]
                 progress("undo", n, len(todo), os.path.basename(a))
-                touched = [a, b] if kind in ("mover", "quarentena", "extraido") else [a] if kind in ("tags", "capa", "capa_fora") else []
-                if any(os.path.isabs(p) and inside(p) for p in touched):
+                paths = (a, b) if kind in ("mover", "quarentena", "extraido") else (a,)
+                touched = {os.path.normcase(p) for p in paths if os.path.isabs(p)}
+                # A failed later action leaves this track at a different path, or another file in its place.
+                # Keep that chain and any enclosing extraction pending while undoing unrelated tracks.
+                if (blocked_paths.intersection(touched) or
+                        (kind == "extraido" and any(p.startswith(os.path.normcase(b) + os.sep) for p in blocked_paths))):
+                    blocked_paths.update(touched)
+                    continue
+                if any(inside(p) for p in touched):
                     errors.append(t("err.undo_protected", path=a))
                     retry[0] = True  # stays pending: undone later, when the folder is no longer protected
+                    blocked_paths.update(touched)
                     continue
                 ok = False
                 if kind == "tags":
@@ -1726,7 +1752,6 @@ def _undo_last(root, progress, cancel, protected=()):
                     elif len(r) > 3 and snapshot(a) != r[3]:
                         errors.append(t("err.undo_tags_changed", path=a))
                         retry[0] = True
-                        blocked_tag_paths.add(os.path.normcase(a))
                     else:
                         try:
                             _safe_restore(a, b, run_id)
@@ -1782,18 +1807,18 @@ def _undo_last(root, progress, cancel, protected=()):
                         except OSError as e:
                             errors.append(f"{b}: {e}")
                             retry[0] = True
+                            blocked_paths.update(touched)
                             continue
                     extracted.discard(a)
                     rep["undo_extract"] += 1
                     ok = True
                 else:
-                    if os.path.normcase(b) in blocked_tag_paths:
-                        blocked_tag_paths.add(os.path.normcase(a))  # keep every earlier move in this track's chain pending
-                        continue
                     ok = _move_back(a, b, errors, retry)
                     if ok:
                         rep["undo_from_quarantine" if kind == "quarentena" else "undo_returned"] += 1
-                if ok:
+                if not ok:
+                    blocked_paths.update(touched)
+                else:
                     if kind == "genero":
                         _write_json(overrides_path, overrides)  # saved before the entry counts as done
                     elif kind == "extraido":

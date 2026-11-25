@@ -4,20 +4,21 @@ import sys
 import threading
 import traceback
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
-from PySide6.QtCore import QObject, QPointF, QPropertyAnimation, QRectF, QSize, Qt, QThread, QTimer, Signal, Property
+from PySide6.QtCore import QObject, QPointF, QPropertyAnimation, QRectF, Qt, QThread, QTimer, Signal, Property
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut
-from PySide6.QtWidgets import (QAbstractButton, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
-                               QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
+                               QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow, QMenu,
+                               QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+                               QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
 
 from . import __version__, config, termos
 from .capas import SiteCovers
 from .i18n import LANGS, lang, report_label, set_lang, system_lang, t
 from .pipeline import (APP_DIR, MARKED_COVERS, Busy, Cancelled, Options, Organizer, library_lock, library_report, list_runs,
                        has_completed_full_run, protectable, purge_quarantine, too_broad, undo_until)
-from .theme import C, QSS
+from .theme import C, QSS, RecordSleeve
 
 # (Options field, pipeline step ids shown on that row). "_organize" always runs.
 STEPS = [("extract", ["extract"]), ("_organize", ["organize"]), ("dedupe", ["dedupe_scan", "dedupe_remove"]),
@@ -34,13 +35,13 @@ def opt_key(field):
     return "opt." + field.lstrip("_")
 
 
-class Toggle(QAbstractButton):
+class Toggle(QCheckBox):
     """Switch; keyboard accessible (Space toggles), visible focus ring."""
 
     def __init__(self, checked=False, parent=None):
         super().__init__(parent)
-        self.setCheckable(True)
         self.setChecked(checked)
+        self.setFixedSize(36, 22)
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.StrongFocus)
         self._pos = 1.0 if checked else 0.0
@@ -48,8 +49,8 @@ class Toggle(QAbstractButton):
         self._anim.setDuration(160)
         self.toggled.connect(self._animate)
 
-    def sizeHint(self):
-        return QSize(44, 24)
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
 
     def _animate(self, on):
         self._anim.stop()
@@ -69,18 +70,18 @@ class Toggle(QAbstractButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(1, 1, self.width() - 2, self.height() - 2)
-        off, on = QColor(C["muted"]), QColor(C["accent"])
+        off, on = QColor(C["switch_off"]), QColor(C["accent"])
         mix = lambda a, b: int(a + (b - a) * self._pos)
         track = QColor(mix(off.red(), on.red()), mix(off.green(), on.green()), mix(off.blue(), on.blue()))
         if not self.isEnabled():
             track.setAlpha(90)
-        p.setPen(QColor(C["secondary_hover"]) if self.hasFocus() else Qt.NoPen)
+        p.setPen(QPen(QColor(C["fg"]), 2) if self.hasFocus() else Qt.NoPen)
         p.setBrush(track)
         p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
         d = r.height() - 6
         x = r.left() + 3 + (r.width() - d - 6) * self._pos
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#FFFFFF"))
+        p.setBrush(QColor(C["on_accent"] if self.isChecked() else C["fg"]))
         p.drawEllipse(QRectF(x, r.top() + 3, d, d))
 
 
@@ -90,10 +91,22 @@ def card(title=None, subtitle=None):
     lay.setContentsMargins(20, 18, 20, 18)
     lay.setSpacing(12)
     if title:
-        lay.addWidget(QLabel(title, objectName="cardTitle"))
+        lay.addWidget(QLabel(title, objectName="cardTitle", wordWrap=True))
     if subtitle:
         lay.addWidget(QLabel(subtitle, objectName="hint", wordWrap=True, openExternalLinks=True))
     return f, lay
+
+
+def tab_page(tabs, title):
+    page = QWidget()
+    lay = QVBoxLayout(page)
+    lay.setContentsMargins(0, 12, 4, 2)
+    lay.setSpacing(10)
+    scroll = QScrollArea(widgetResizable=True, frameShape=QFrame.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setWidget(page)
+    tabs.addTab(scroll, t(title))
+    return lay
 
 
 class StatusIcon(QWidget):
@@ -124,12 +137,12 @@ class StatusIcon(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(2, 2, self.SIZE - 4, self.SIZE - 4)
         if self.state in ("waiting", "off"):
-            p.setPen(QPen(QColor(C["muted"] if self.state == "waiting" else "#2E2E45"), 2))
+            p.setPen(QPen(QColor(C["switch_off"] if self.state == "waiting" else C["border"]), 2))
             p.drawEllipse(r)
         elif self.state == "running":
             p.setPen(QPen(QColor(C["muted"]), 2))
             p.drawEllipse(r)
-            pen = QPen(QColor("#818CF8"), 2.5)  # lighter indigo: visible on the dark card
+            pen = QPen(QColor(C["accent"]), 2.5)
             pen.setCapStyle(Qt.RoundCap)
             p.setPen(pen)
             p.drawArc(r, self.angle * 16, 100 * 16)  # a 100 degree arc going round
@@ -170,7 +183,7 @@ class StepRow(QWidget):
     def set(self, state, text=None):
         self.current = state
         self.dot.set(state)
-        self.title.setStyleSheet(f"color:{C['fg'] if state != 'off' else '#5B6478'};"
+        self.title.setStyleSheet(f"color:{C['fg'] if state != 'off' else C['fg_muted']};"
                                  f"font-weight:{600 if state == 'running' else 400};")
         self.state.setText(text if text is not None else t("state." + state))
 
@@ -238,7 +251,7 @@ class Worker(QObject):
 
 
 class Window(QMainWindow):
-    _key_result = Signal(str, str, str)  # service, result, detail
+    _key_result = Signal(str, int, str, str)  # service, request number, result, detail
     _update_found = Signal(object)  # dict from atualizacoes.check(), or None
     _update_progress = Signal(int)
     _update_ready = Signal(str)  # downloaded installer path, or "" on failure
@@ -246,18 +259,21 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(t("app.title"))
-        self.resize(1080, 760)
-        self.setMinimumSize(900, 620)
+        self.resize(1100, 760)
+        self.setMinimumSize(760, 520)
         self.thread = None
         self.worker = None
         self.cancel = threading.Event()
         self.current_row = None
         self._updating = False
         self._plan, self._plan_opts, self._plan_snapshot = [], None, None
+        self._last_rep = {}
         self._key_ui = {}
+        self._next_key_check = 0
         self._key_controls = []
         self._key_result.connect(self._show_key_result)  # once: results come back to the UI thread
         self._update_info = None
+        self._status_key = "status.ready"
         self._update_found.connect(self._show_update)
         self._update_progress.connect(lambda pct: self.upd_btn.setText(t("upd.downloading", pct=pct)))
         self._update_ready.connect(self._run_installer)
@@ -265,39 +281,44 @@ class Window(QMainWindow):
         QShortcut(QKeySequence("F1"), self, self.show_help)
 
     def build(self):
+        show_update = self._update_info is not None and not self.banner.isHidden()
         old_log = self.log.toPlainText() if hasattr(self, "log") else ""
+        old_states = [r.current for _, r in self.step_rows] if old_log else []
+        tab = self.tabs.currentIndex() if hasattr(self, "tabs") else 0
+        shutdown = self.shutdown_toggle.isChecked() if hasattr(self, "shutdown_toggle") else False
         self._key_controls = []
         opts, keys = config.load()
+        self._saved_options = asdict(opts)
+        self._saved_keys = {key: keys.get(key, "") for key in ("discogs_token", "lastfm_api_key")}
+        self._checking = {}
+        self._columns = []
         self.folder_lang = opts.folder_lang
         root = QWidget(objectName="root")
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(28, 24, 28, 24)
-        outer.setSpacing(20)
+        outer.setContentsMargins(24, 16, 24, 16)
+        outer.setSpacing(12)
 
-        # header
         head = QHBoxLayout()
         logo = QLabel()
-        logo.setPixmap(QPixmap(LOGO).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        head.addWidget(logo, 0, Qt.AlignTop)
-        head.addSpacing(10)
-        titles = QVBoxLayout()
-        titles.setSpacing(2)
-        titles.addWidget(QLabel(t("app.title"), objectName="title"))
-        titles.addWidget(QLabel(t("app.subtitle"), objectName="subtitle"))
-        head.addLayout(titles, 1)
-        for label, tip, fn in (("btn.help", "btn.help_tip", self.show_help), ("terms.menu", "terms.title", self.show_terms),
-                               ("btn.about", "btn.about_tip", self.show_about)):
-            b = QPushButton(t(label), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t(tip))
-            b.clicked.connect(fn)
-            head.addWidget(b, 0, Qt.AlignTop)
+        logo.setPixmap(QPixmap(LOGO).scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        head.addWidget(logo)
+        head.addWidget(QLabel(t("app.title"), objectName="title"))
+        head.addWidget(QLabel(f"v{__version__}", objectName="badge"), 0, Qt.AlignVCenter)
+        head.addStretch()
+        help_btn = QPushButton(t("btn.help"), cursor=Qt.PointingHandCursor)
+        menu = QMenu(help_btn)
+        menu.addAction(t("btn.help_tip"), self.show_help)
+        menu.addAction(t("terms.menu"), self.show_terms)
+        menu.addAction(t("btn.about"), self.show_about)
+        help_btn.setMenu(menu)
+        head.addWidget(help_btn)
         self.lang_combo = QComboBox(toolTip=t("lang.tip"))
         self.lang_combo.setAccessibleName(t("lang.tip"))
         for code, name in LANGS.items():
             self.lang_combo.addItem(name, code)
         self.lang_combo.setCurrentIndex(list(LANGS).index(lang()))
         self.lang_combo.currentIndexChanged.connect(self.change_lang)
-        head.addWidget(self.lang_combo, 0, Qt.AlignTop)
-        head.addWidget(QLabel(f"v{__version__}", objectName="badge"), 0, Qt.AlignTop)
+        head.addWidget(self.lang_combo)
         outer.addLayout(head)
 
         self.banner = QFrame(objectName="banner")
@@ -313,20 +334,44 @@ class Window(QMainWindow):
         bl.addWidget(self.upd_btn)
         self.banner.hide()
         outer.addWidget(self.banner)
-        if self._update_info:  # rebuilt after a language change
+        if show_update:  # preserve a dismissed banner when rebuilding in another language
             self._show_update(self._update_info)
 
-        cols = QHBoxLayout()
-        cols.setSpacing(20)
-        outer.addLayout(cols, 1)
+        outer.addWidget(self._library_card(opts, shutdown))
+        self.tabs = QTabWidget()
+        outer.addWidget(self.tabs, 1)
+        self._activity_page()
+        self._options_page(opts, shutdown)
+        self._sources_page(keys)
+        self._tools_page(opts)
+        self.tabs.currentChanged.connect(self._refresh_overview)
+        self._refresh_overview(0)
+        self.tabs.setCurrentIndex(tab)
+        self.folder.textChanged.connect(self._update_new_only_availability)
+        self._update_new_only_availability()
+        self.setCentralWidget(root)
+        self._fit_columns()
+        self.setWindowTitle(t("app.title"))
+        if old_log:
+            self.log.setPlainText(old_log)
+            for (_, row), state in zip(self.step_rows, old_states):
+                row.set(state)
+            self.status.setText(t(self._status_key))
+            if self._status_key in ("status.done", "status.preview_done"):
+                self.bar.setRange(0, 1)
+                self.bar.setValue(1)
+        self._update_plan_button()
+        if self._last_rep:
+            self.show_stats(self._last_rep)
 
-        # ---- left: settings (scrollable) ----
-        left = QWidget()
-        ll = QVBoxLayout(left)
-        ll.setContentsMargins(0, 0, 6, 0)
-        ll.setSpacing(16)
-
-        c, lay = card(t("card.library"), t("card.library_hint"))
+    def _library_card(self, opts, shutdown):
+        hero = QFrame(objectName="library")
+        layout = QHBoxLayout(hero)
+        layout.setContentsMargins(22, 14, 16, 14)
+        form = QVBoxLayout()
+        form.setSpacing(8)
+        title = QLabel(t("folder.dialog"), objectName="libraryTitle")
+        form.addWidget(title)
         row = QHBoxLayout()
         self.folder = QLineEdit(opts.root, placeholderText=t("folder.placeholder"))
         self.folder.setAccessibleName(t("folder.dialog"))
@@ -334,9 +379,169 @@ class Window(QMainWindow):
         pick.clicked.connect(self.pick_folder)
         row.addWidget(self.folder, 1)
         row.addWidget(pick)
+        title.setBuddy(self.folder)
+        form.addLayout(row)
+        form.addWidget(QLabel(t("library.hint"), objectName="hint", wordWrap=True))
+        actions = QHBoxLayout()
+        self.btn_preview = QPushButton(t("btn.preview"), objectName="primary", cursor=Qt.PointingHandCursor,
+                                       toolTip=t("btn.preview_tip"))
+        self.btn_preview.clicked.connect(lambda: self.start("preview"))
+        self.btn_run = QPushButton(t("btn.run"), cursor=Qt.PointingHandCursor)
+        self.btn_run.clicked.connect(lambda: self.start("run"))
+        self.btn_plan = QPushButton(objectName="review", cursor=Qt.PointingHandCursor, toolTip=t("btn.plan_tip"))
+        self.btn_plan.clicked.connect(self.show_plan)
+        self.btn_plan.hide()
+        self.btn_cancel = QPushButton(t("btn.cancel"), objectName="danger", cursor=Qt.PointingHandCursor)
+        self.btn_cancel.clicked.connect(self.do_cancel)
+        self.btn_cancel.hide()
+        for button in (self.btn_preview, self.btn_plan, self.btn_run, self.btn_cancel):
+            actions.addWidget(button)
+        actions.addStretch()
+        self.shutdown_note = QLabel(t("shut.toggle"), objectName="armed")
+        self.shutdown_note.setVisible(shutdown)
+        actions.addWidget(self.shutdown_note)
+        form.addLayout(actions)
+        layout.addLayout(form, 1)
+        self.sleeve = RecordSleeve()
+        layout.addWidget(self.sleeve)
+        return hero
+
+    def _page_columns(self, page):
+        columns = QHBoxLayout()
+        columns.setSpacing(14)
+        page.addLayout(columns, 1)
+        self._columns.append(columns)
+        return columns
+
+    def _fit_columns(self):
+        available = self.width() - 76  # outer margins, page padding and vertical scrollbar
+        self.sleeve.setVisible(available >= 820)
+        for columns in self._columns:
+            needed = sum(columns.itemAt(i).minimumSize().width() for i in range(columns.count()))
+            direction = QBoxLayout.LeftToRight if needed + columns.spacing() <= available else QBoxLayout.TopToBottom
+            columns.setDirection(direction)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "sleeve"):
+            self._fit_columns()
+
+    def _activity_page(self):
+        page = tab_page(self.tabs, "tab.activity")
+        columns = self._page_columns(page)
+        progress, lay = card(t("card.progress"))
+        columns.addWidget(progress, 1)
+        self.status = QLabel(t("status.ready"), objectName="hint", wordWrap=True)
+        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(self.status)
+        self.bar = QProgressBar(textVisible=False, value=0)
+        lay.addWidget(self.bar)
+        self.rows, self.step_rows = {}, []
+        for field, ids in STEPS:
+            r = StepRow(t(opt_key(field)))
+            lay.addWidget(r)
+            self.step_rows.append((field, r))
+            for i in ids:
+                self.rows[i] = r
+        lay.addStretch()
+        self.results = QStackedWidget()
+        columns.addWidget(self.results, 1)
+        overview, lay = card(t("overview.title"))
+        self.results.addWidget(overview)
+        self.step_count = QLabel(objectName="overviewValue")
+        self.protected_count = QLabel(objectName="overviewValue")
+        self.source_names = QLabel(objectName="overviewValue")
+        for key, value in (("overview.steps", self.step_count), ("protect.title", self.protected_count),
+                           ("overview.sources", self.source_names)):
+            row = QHBoxLayout()
+            row.addWidget(QLabel(t(key)), 1)
+            row.addWidget(value)
+            lay.addLayout(row)
+        review = QPushButton(t("overview.edit"), cursor=Qt.PointingHandCursor)
+        review.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        lay.addWidget(review, 0, Qt.AlignLeft)
+        lay.addStretch()
+
+        summary, lay = card(t("card.summary"))
+        self.results.addWidget(summary)
+        self.stats_grid = QGridLayout()
+        lay.addLayout(self.stats_grid)
+        self.log = QPlainTextEdit(readOnly=True, placeholderText=t("log.placeholder"))
+        self.log.setAccessibleName(t("card.summary"))
+        self.log.setMinimumHeight(90)
+        lay.addWidget(self.log, 1)
+        self.log.textChanged.connect(lambda: self.results.setCurrentIndex(int(not self.log.document().isEmpty())))
+
+    def _refresh_overview(self, index):
+        if index != 0:
+            return
+        selected = {field: toggle.isChecked() for field, toggle in self.toggles.items()}
+        optional = [field for field, _ in STEPS if not field.startswith("_")]
+        self.step_count.setText(f"{sum(selected[field] for field in optional)} / {len(optional)}")
+        if self.log.document().isEmpty() and self.thread is None:
+            self.reset_rows(Options(**selected), "run")
+        self.protected_count.setText(str(self.protected.count()))
+        sources = [name for name, edit in (("Discogs", self.discogs), ("Last.fm", self.lastfm)) if edit.text().strip()]
+        self.source_names.setText(", ".join(sources) or t("overview.none"))
+
+    def _options_page(self, opts, shutdown):
+        page = tab_page(self.tabs, "tab.options")
+        columns = self._page_columns(page)
+        basic, lay = card(t("card.steps"))
+        columns.addWidget(basic, 1)
+        self.toggles = {}
+        self.scope_options = {field: getattr(opts, field) for field in OLD_SCOPE}
+        for field, _ in STEPS:
+            if not field.startswith("_"):
+                self.toggles[field] = self._option(lay, field, getattr(opts, field))
+        self.shutdown_toggle = Toggle(shutdown)
+        self.shutdown_toggle.setAccessibleName(t("shut.toggle"))
+        self.shutdown_toggle.setToolTip(t("shut.tip"))
+        self.shutdown_toggle.toggled.connect(self.shutdown_note.setVisible)
+        self.shutdown_toggle.toggled.connect(self._shutdown_armed)
+        row = QHBoxLayout()
+        label = QLabel(t("shut.toggle"), toolTip=t("shut.tip"))
+        label.setBuddy(self.shutdown_toggle)
+        row.addWidget(label, 1)
+        row.addWidget(self.shutdown_toggle)
         lay.addLayout(row)
-        lay.addWidget(QLabel(t("protect.title"), objectName="stepDesc"))
-        lay.addWidget(QLabel(t("protect.hint"), objectName="hint", wordWrap=True))
+        lay.addStretch()
+        extra, lay = card(t("card.more"))
+        columns.addWidget(extra, 1)
+        for field in EXTRA_OPTIONS:
+            self.toggles[field] = self._option(lay, field, getattr(opts, field))
+            if field == "only_new":
+                self.new_only_hint = QLabel(t("scope.first_run"), objectName="hint", wordWrap=True)
+                lay.addWidget(self.new_only_hint)
+                self.btn_old_scope = QPushButton(cursor=Qt.PointingHandCursor)
+                self._update_old_scope_button()
+                self.btn_old_scope.clicked.connect(self.edit_old_scope)
+                lay.addWidget(self.btn_old_scope, 0, Qt.AlignLeft)
+            if field == "site_covers":
+                self.btn_covers = QPushButton(t("btn.covers"), objectName="ghost", cursor=Qt.PointingHandCursor,
+                                              toolTip=t("btn.covers_tip"))
+                self.btn_covers.clicked.connect(lambda: self.start("covers_scan"))
+                lay.addWidget(self.btn_covers, 0, Qt.AlignLeft)
+        lay.addStretch()
+        page.addStretch()
+
+    def _sources_page(self, keys):
+        page = tab_page(self.tabs, "card.online")
+        link = '<a style="color:{c}" href="{h}">{x}</a>'
+        c, lay = card(t("card.online"), t("card.online_hint",
+                      discogs=link.format(c=C["accent"], h="https://www.discogs.com/settings/developers", x=t("link.discogs")),
+                      lastfm=link.format(c=C["accent"], h="https://www.last.fm/api/account/create", x=t("link.lastfm"))))
+        self.discogs = self._secret(lay, "Discogs token", keys.get("discogs_token", ""), "discogs")
+        self.lastfm = self._secret(lay, "Last.fm API key", keys.get("lastfm_api_key", ""), "lastfm")
+        page.addWidget(c)
+        page.addStretch()
+
+    def _tools_page(self, opts):
+        page = tab_page(self.tabs, "tab.tools")
+        columns = self._page_columns(page)
+        protected, lay = card(t("protect.title"), t("protect.hint"))
+        columns.addWidget(protected, 1)
         self.protected = QListWidget()
         self.protected.setAccessibleName(t("protect.title"))
         self.protected.addItems(opts.protected)
@@ -352,168 +557,22 @@ class Window(QMainWindow):
         row.addWidget(self.protect_del)
         row.addWidget(self.protect_add)
         lay.addLayout(row)
-        ll.addWidget(c)
-
-        link = '<a style="color:{c}" href="{h}">{x}</a>'
-        c, lay = card(t("card.online"), t("card.online_hint",
-                      discogs=link.format(c=C["accent"], h="https://www.discogs.com/settings/developers", x=t("link.discogs")),
-                      lastfm=link.format(c=C["accent"], h="https://www.last.fm/api/account/create", x=t("link.lastfm"))))
-        self.discogs = self._secret(lay, "Discogs token", keys.get("discogs_token", ""), "discogs")
-        self.lastfm = self._secret(lay, "Last.fm API key", keys.get("lastfm_api_key", ""), "lastfm")
-        ll.addWidget(c)
-
-        c, lay = card(t("card.steps"))
-        self.toggles = {}
-        self.scope_options = {field: getattr(opts, field) for field in OLD_SCOPE}
-        for field, _ in STEPS:
-            if not field.startswith("_"):
-                self.toggles[field] = self._option(lay, field, getattr(opts, field))
-        lay.addWidget(QLabel(t("card.more"), objectName="cardTitle"))
-        for field in EXTRA_OPTIONS:
-            self.toggles[field] = self._option(lay, field, getattr(opts, field))
-            if field == "only_new":
-                self.new_only_hint = QLabel(t("scope.first_run"), objectName="hint", wordWrap=True)
-                lay.addWidget(self.new_only_hint)
-                self.btn_old_scope = QPushButton(cursor=Qt.PointingHandCursor)
-                self._update_old_scope_button()
-                self.btn_old_scope.clicked.connect(self.edit_old_scope)
-                lay.addWidget(self.btn_old_scope, 0, Qt.AlignLeft)
-            if field == "site_covers":
-                self.btn_covers = QPushButton(t("btn.covers"), objectName="ghost", cursor=Qt.PointingHandCursor,
-                                              toolTip=t("btn.covers_tip"))
-                self.btn_covers.clicked.connect(lambda: self.start("covers_scan"))
-                lay.addWidget(self.btn_covers, 0, Qt.AlignLeft)
-        self.folder.textChanged.connect(self._update_new_only_availability)
-        self._update_new_only_availability()
-        ll.addWidget(c)
-        ll.addStretch()
-        self.steps_card, self.left_lay = c, ll
-
-        scroll = QScrollArea(widgetResizable=True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # content follows the column width
-        left.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        scroll.setWidget(left)
-        scroll.setMinimumWidth(440)
-        cols.addWidget(scroll, 5)
-
-        # wide windows (full screen): the steps get a column of their own, so nothing needs scrolling
-        mid = QWidget()
-        self.mid_lay = QVBoxLayout(mid)
-        self.mid_lay.setContentsMargins(0, 0, 6, 0)
-        self.mid_lay.addStretch()
-        mid.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.mid_scroll = QScrollArea(widgetResizable=True)
-        self.mid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.mid_scroll.setWidget(mid)
-        self.mid_scroll.hide()
-        cols.addWidget(self.mid_scroll, 5)
-        self.wide = False
-
-        # ---- right: actions + progress ----
-        right = QVBoxLayout()
-        right.setSpacing(16)
-        c, lay = card()
-        btns = QHBoxLayout()
-        self.btn_run = QPushButton(t("btn.run"), objectName="primary", cursor=Qt.PointingHandCursor)
-        self.btn_preview = QPushButton(t("btn.preview"), cursor=Qt.PointingHandCursor, toolTip=t("btn.preview_tip"))
-        self.btn_cancel = QPushButton(t("btn.cancel"), objectName="danger", cursor=Qt.PointingHandCursor, enabled=False)
-        self.btn_undo = QPushButton(t("btn.history"), objectName="ghost", cursor=Qt.PointingHandCursor,
-                                    toolTip=t("btn.history_tip"))
-        self.btn_run.clicked.connect(lambda: self.start("run"))
-        self.btn_preview.clicked.connect(lambda: self.start("preview"))
-        self.btn_cancel.clicked.connect(self.do_cancel)
-        self.btn_undo.clicked.connect(self.undo)
-        for b in (self.btn_run, self.btn_preview, self.btn_cancel):
-            btns.addWidget(b)
-        btns.addStretch()
-        # next to the main buttons so it is seen; per session on purpose: never shuts the PC down
-        # because it was left on from last time
-        self.shutdown_toggle = Toggle(False)
-        self.shutdown_toggle.setAccessibleName(t("shut.toggle"))
-        self.shutdown_toggle.setToolTip(t("shut.tip"))
-        self.shutdown_toggle.toggled.connect(self._shutdown_armed)
-        shut_label = QLabel(t("shut.short"), objectName="shutLabel", toolTip=t("shut.tip"))
-        shut_label.setBuddy(self.shutdown_toggle)
-        btns.addWidget(self.shutdown_toggle)
-        btns.addWidget(shut_label)
-        lay.addLayout(btns)
-        self.btn_purge = QPushButton(t("btn.purge"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.purge_tip"))
-        self.btn_purge.clicked.connect(self.purge)
-        self.btn_quarantine = QPushButton(t("btn.quarantine"), objectName="ghost", cursor=Qt.PointingHandCursor,
-                                          toolTip=t("btn.quarantine_tip"))
-        self.btn_quarantine.clicked.connect(self.open_quarantine)
-        self.btn_plan = QPushButton(objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.plan_tip"))
-        self.btn_plan.clicked.connect(self.show_plan)
-        self.btn_plan.hide()  # only after a Preview found something
-        self.btn_report = QPushButton(t("btn.report"), objectName="ghost", cursor=Qt.PointingHandCursor,
-                                      toolTip=t("btn.report_tip"))
+        lay.addStretch()
+        tools, lay = card(t("tools.library"))
+        columns.addWidget(tools, 1)
+        self.btn_report = QPushButton(t("btn.report"), toolTip=t("btn.report_tip"))
         self.btn_report.clicked.connect(lambda: self.start("report"))
-        extra = QHBoxLayout()  # secondary actions on their own row: never squeezed by the main buttons
-        extra.addWidget(self.btn_plan)
-        extra.addStretch()
-        extra.addWidget(self.btn_report)
-        extra.addWidget(self.btn_quarantine)
-        extra.addWidget(self.btn_purge)
-        extra.addWidget(self.btn_undo)
-        lay.addLayout(extra)
-        self.bar = QProgressBar(textVisible=False)
-        self.status = QLabel(t("status.ready"), objectName="hint")
-        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        lay.addWidget(self.bar)
-        lay.addWidget(self.status)
-        right.addWidget(c)
-
-        c, lay = card(t("card.progress"))
-        self.rows, self.step_rows = {}, []
-        for field, ids in STEPS:
-            r = StepRow(t(opt_key(field)))
-            lay.addWidget(r)
-            self.step_rows.append((field, r))
-            for i in ids:
-                self.rows[i] = r
-        c.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)  # the log shrinks, the step list never does
-        right.addWidget(c)
-
-        c, lay = card(t("card.summary"))
-        self.stats_grid = QGridLayout()
-        self.stats_grid.setHorizontalSpacing(24)
-        lay.addLayout(self.stats_grid)
-        self.log = QPlainTextEdit(readOnly=True, placeholderText=t("log.placeholder"))
-        self.log.setMinimumHeight(90)
-        lay.addWidget(self.log, 1)
-        right.addWidget(c, 1)
-        cols.addLayout(right, 6)
-
-        self.setCentralWidget(root)
-        self.setWindowTitle(t("app.title"))
-        self._fit_columns()
-        if old_log:
-            self.log.setPlainText(old_log)
-        if self._plan:
-            tracks = len({p for _, p, _ in self._plan})
-            self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
-            self.btn_plan.show()
-        if hasattr(self, "_last_rep"):
-            self.show_stats(self._last_rep)
-
-    WIDE = 1500  # px: from here the steps move to a middle column
-
-    def _fit_columns(self):
-        wide = self.width() >= self.WIDE
-        if wide == self.wide:
-            return
-        self.wide = wide
-        if wide:
-            self.mid_lay.insertWidget(0, self.steps_card)
-            self.mid_scroll.show()
-        else:
-            self.left_lay.insertWidget(2, self.steps_card)  # back under Biblioteca + Fontes online
-            self.mid_scroll.hide()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if hasattr(self, "mid_scroll"):
-            self._fit_columns()
+        self.btn_undo = QPushButton(t("btn.history"), toolTip=t("btn.history_tip"))
+        self.btn_undo.clicked.connect(self.undo)
+        self.btn_quarantine = QPushButton(t("btn.quarantine"), toolTip=t("btn.quarantine_tip"))
+        self.btn_quarantine.clicked.connect(self.open_quarantine)
+        self.btn_purge = QPushButton(t("btn.purge"), objectName="danger", toolTip=t("btn.purge_tip"))
+        self.btn_purge.clicked.connect(self.purge)
+        for button in (self.btn_report, self.btn_undo, self.btn_quarantine, self.btn_purge):
+            button.setCursor(Qt.PointingHandCursor)
+            lay.addWidget(button)
+        lay.addStretch()
+        page.addStretch()
 
     # ---------- building blocks ----------
 
@@ -527,13 +586,23 @@ class Window(QMainWindow):
                                          show.setText(t("btn.hide") if on else t("btn.show"))))
         check = QPushButton(t("btn.check"), objectName="ghost", cursor=Qt.PointingHandCursor, toolTip=t("btn.check_tip"))
         clear = QPushButton(t("btn.clear_key"), objectName="ghost", cursor=Qt.PointingHandCursor)
-        self._key_controls.extend((show, clear, check))
+        self._key_controls.extend((show, clear))
         status = QLabel(objectName="hint")
         self._key_ui[service] = (check, status)
         check.clicked.connect(lambda: self.check_key(service, e))
-        clear.clicked.connect(lambda: (e.clear(), config.clear_key(
-            "discogs_token" if service == "discogs" else "lastfm_api_key"), status.setText("")))
-        e.textChanged.connect(lambda _: status.setText(""))  # a different key: old result no longer applies
+        def clear_key():
+            name = "discogs_token" if service == "discogs" else "lastfm_api_key"
+            if config.clear_key(name):
+                self._saved_keys[name] = ""
+                e.clear()
+
+        def invalidate():
+            self._checking.pop(service, None)
+            check.setEnabled(e.isEnabled())
+            status.clear()
+
+        clear.clicked.connect(clear_key)
+        e.textChanged.connect(invalidate)
         row.addWidget(e, 1)
         row.addWidget(show)
         row.addWidget(clear)
@@ -605,20 +674,18 @@ class Window(QMainWindow):
         status.setStyleSheet("")
         status.setText(t("key.checking"))
         key = edit.text()
-        self._checking = getattr(self, "_checking", {})
-        self._checking[service] = key  # the result is shown only if the field still holds this key
-        threading.Thread(target=lambda: self._key_result.emit(service, *check_key(service, key)), daemon=True).start()
+        self._next_key_check += 1
+        request = self._next_key_check
+        self._checking[service] = request
+        threading.Thread(target=lambda: self._key_result.emit(service, request, *check_key(service, key)), daemon=True).start()
 
-    def _show_key_result(self, service, result, detail):
-        if service not in self._key_ui:
+    def _show_key_result(self, service, request, result, detail):
+        if self._checking.get(service) != request:
             return
+        del self._checking[service]
         button, status = self._key_ui[service]
-        button.setEnabled(True)
-        key = getattr(self, "_checking", {}).get(service)
-        field = self.discogs if service == "discogs" else self.lastfm  # the current widget, never an old one
-        if key is None or field.text() != key:
-            status.setText("")  # changed while it was being checked: that result is not about the key in the field now
-            return
+        field = self.discogs if service == "discogs" else self.lastfm
+        button.setEnabled(field.isEnabled())
         color = {"ok": C["accent"], "invalid": C["danger"]}.get(result, C["warn"])
         status.setStyleSheet(f"color:{color};")
         status.setText(t("key." + result, detail=detail).strip())
@@ -629,7 +696,7 @@ class Window(QMainWindow):
         row = QHBoxLayout()
         text = QVBoxLayout()
         text.setSpacing(1)
-        title = QLabel(t(opt_key(field)))
+        title = QLabel(t(opt_key(field)), wordWrap=True)
         text.addWidget(title)
         text.addWidget(QLabel(t(opt_key(field) + "_d"), objectName="stepDesc", wordWrap=True))
         tg = Toggle(checked)
@@ -718,7 +785,14 @@ class Window(QMainWindow):
                        protected=[self.protected.item(i).text() for i in range(self.protected.count())],
                         **{f: tg.isChecked() for f, tg in self.toggles.items()}, **self.scope_options)
         keys = {"discogs_token": self.discogs.text().strip(), "lastfm_api_key": self.lastfm.text().strip()}
-        config.save(opts, keys)
+        values = asdict(opts)
+        changed_opts = {name: value for name, value in values.items() if value != self._saved_options[name]}
+        changed_keys = {name: value for name, value in keys.items() if value != self._saved_keys[name]}
+        if changed_opts or changed_keys:
+            # Two open windows can edit different settings. Merge only edits made in this window.
+            stored_opts, stored_keys = config.load()
+            if config.save(replace(stored_opts, **changed_opts), stored_keys | changed_keys):
+                self._saved_options, self._saved_keys = values, keys
         return opts, keys
 
     def busy(self, on):
@@ -726,14 +800,19 @@ class Window(QMainWindow):
                   self.btn_covers, self.btn_old_scope, self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
                   self.lang_combo, *self._key_controls, *self.toggles.values()):
             w.setEnabled(not on)
+        for service, (check, _) in self._key_ui.items():
+            check.setEnabled(not on and service not in self._checking)
         self.btn_cancel.setEnabled(on)
+        self.btn_cancel.setVisible(on)
+        if on:
+            self.tabs.setCurrentIndex(0)
         if not on:
             self._update_new_only_availability()
 
     def reset_rows(self, opts, kind):
         for field, r in self.step_rows:
             if kind == "preview":
-                on = field in ("_organize", "extract", "dedupe")
+                on = field == "_organize" or (field in ("extract", "dedupe") and getattr(opts, field))
             elif kind in ("undo", "purge", "report", "covers_scan"):
                 on = False
             elif field == "write_tags":
@@ -770,8 +849,8 @@ class Window(QMainWindow):
         self.bar.setMaximum(1)
         self.bar.setValue(0)
         self.clear_stats()
-        self.btn_plan.hide()  # a list from an earlier Preview no longer matches the files
-        self._plan_opts = asdict(opts) if kind == "preview" else None  # the list is valid only for these options
+        self._last_rep = {}
+        self._clear_plan()
         self.cancel = threading.Event()
         self.thread = QThread()
         self.worker = Worker(kind, opts, keys, self.cancel, extra)
@@ -801,6 +880,7 @@ class Window(QMainWindow):
                 else:
                     QTimer.singleShot(0, self.close)
             return
+        self.current()
         event.accept()
 
     def open_quarantine(self):
@@ -833,11 +913,21 @@ class Window(QMainWindow):
         if QMessageBox.question(self, t("history.title"), t("history.confirm", n=i + 1, date=run_date(run_id))) == QMessageBox.Yes:
             self.start("undo", opts, keys, {"until": run_id, "newest": runs[0][0]})
 
+    def _update_plan_button(self):
+        if self._plan:
+            tracks = len({p for _, p, _ in self._plan})
+            self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
+        self.btn_plan.setVisible(bool(self._plan))
+
+    def _clear_plan(self):
+        self._plan, self._plan_opts, self._plan_snapshot = [], None, None
+        self.btn_plan.hide()
+
     def show_plan(self):
         from .janelas import PlanDialog
         opts, keys = self.current()
         if asdict(opts) != self._plan_opts:  # folder or options changed since the Preview: the list is not for these
-            self.btn_plan.hide()
+            self._clear_plan()
             QMessageBox.information(self, t("plan.title"), t("plan.stale"))
             return
         d = PlanDialog(self._plan, opts.root, self)
@@ -849,7 +939,7 @@ class Window(QMainWindow):
         except (OSError, ValueError):
             same = False
         if not same:  # tracks or packs added, moved, renamed or changed since the Preview: the list no longer holds
-            self.btn_plan.hide()
+            self._clear_plan()
             QMessageBox.information(self, t("plan.title"), t("plan.stale"))
             return
         self.start("run", opts, keys, {"skip": skip, "snapshot": self._plan_snapshot})  # checked again under the lock
@@ -930,7 +1020,8 @@ class Window(QMainWindow):
         for _, r in self.step_rows:
             if r.current != "off":
                 r.set("done")
-        self.status.setText(t("status.preview_done") if kind == "preview" else t("status.done"))
+        self._status_key = "status.preview_done" if kind == "preview" else "status.done"
+        self.status.setText(t(self._status_key))
         self.show_stats(rep)
         for k, v in sorted(rep.items(), key=lambda kv: -kv[1]):
             if k != "only_new_first":  # a note, not a count
@@ -946,10 +1037,8 @@ class Window(QMainWindow):
         if kind == "preview":
             self.log.appendPlainText(t("log.preview_limits"))
             self._plan, self._plan_snapshot = self.worker.plan, self.worker.snapshot
-            if self._plan:
-                tracks = len({p for _, p, _ in self._plan})  # same count as the list window (tracks, not rows)
-                self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
-                self.btn_plan.show()
+            self._plan_opts = asdict(self.worker.opts)
+            self._update_plan_button()
         if kind == "covers_scan":
             found = self.worker.repeated
             QTimer.singleShot(0, lambda: self._covers_ready(found))
@@ -978,7 +1067,8 @@ class Window(QMainWindow):
         # never shut down after an error or a cancel: only a run that finished (see on_finished)
         if self.current_row is not None:  # cancelled by the user: a plain stop, not a red cross
             self.current_row.set("waiting" if self.cancel.is_set() else "error", t("state.error"))
-        self.status.setText(t("status.stopped"))
+        self._status_key = "status.stopped"
+        self.status.setText(t(self._status_key))
         self.log.appendPlainText(msg)
 
     def clear_stats(self):
@@ -1000,7 +1090,7 @@ class Window(QMainWindow):
             box.addWidget(QLabel(t(label), objectName="statLabel"))
             w = QWidget()
             w.setLayout(box)
-            self.stats_grid.addWidget(w, 0, col)
+            self.stats_grid.addWidget(w, col // 3, col % 3)
             col += 1
 
 

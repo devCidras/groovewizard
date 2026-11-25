@@ -27,13 +27,14 @@ HELP = {
 <h2>Como usar</h2>
 <ol>
   <li><b>Fecha o rekordbox / Serato.</b> A app mexe nos ficheiros e eles não podem estar abertos.</li>
-  <li><b>Biblioteca:</b> escolhe a pasta onde tens as músicas (ex.: <code>D:\\musica</code>). Os packs que
+  <li>Em <b>Pasta das músicas</b>, escolhe a tua biblioteca (ex.: <code>D:\\musica</code>). Os packs que
       descarregas (.zip, .rar) podem ficar lá dentro: a app descompacta-os.</li>
   <li><b>Fontes online</b> (opcional): cola as chaves grátis do Discogs e do Last.fm. Ajudam a descobrir o género
       das faixas que não o têm.</li>
-  <li><b>Passos:</b> liga só o que queres que a app faça.</li>
+  <li>Em <b>Opções</b>, escolhe os passos da organização.</li>
   <li><b>Pré-visualizar</b> não mexe em nada e mostra as mudanças que consegue prever. Não inclui faixas ainda dentro
-      dos packs, resultados online nem limpeza de sites dentro das tags. Depois aparece <b>Ver lista</b>.</li>
+      dos packs, resultados online nem limpeza de sites dentro das tags. Se houver alterações previstas, usa
+      <b>Ver lista</b> para desmarcar faixas e <b>Organizar com as marcadas</b> para aplicar a seleção.</li>
   <li><b>Organizar</b> faz as mudanças. Podes <b>Cancelar</b> a meio: o que já foi feito fica feito.</li>
   <li>No fim, no <b>rekordbox</b>: <i>Ficheiro › Gerir faixas inexistentes › Auto Relocate</i> (escolhe a pasta) e
       depois, na Coleção, <i>Ctrl+A › botão direito › Recarregar tag</i>.</li>
@@ -74,7 +75,7 @@ HELP = {
 </ul>
 <h3>Opções úteis</h3>
 <ul>
-  <li><b>Pastas protegidas</b> (em Biblioteca): pastas em que a app nunca toca, por exemplo os teus edits.</li>
+  <li>Em <b>Ferramentas → Pastas protegidas</b>, escolhe as pastas a excluir, por exemplo os teus edits.</li>
   <li><b>Só faixas novas:</b> fica disponível depois da primeira organização completa desta biblioteca. Normalmente
       arruma só o que chegou depois. Em <i>Também nas antigas…</i>, escolhes separadamente quais os passos a repetir
       nas faixas antigas: arrumar, remover repetidas, procurar género online, separar por BPM, gravar género na tag,
@@ -111,13 +112,14 @@ HELP = {
 <h2>How to use</h2>
 <ol>
   <li><b>Close rekordbox / Serato.</b> The app works on the files and they can't be open.</li>
-  <li><b>Library:</b> choose the folder with your music (e.g. <code>D:\\Music</code>). The packs you download
+  <li>Under <b>Music folder</b>, choose your library (e.g. <code>D:\\Music</code>). The packs you download
       (.zip, .rar) can stay in there: the app unpacks them.</li>
   <li><b>Online sources</b> (optional): paste your free Discogs and Last.fm keys. They help find the genre of tracks
       that don't have one.</li>
-  <li><b>Steps:</b> turn on only what you want the app to do.</li>
+  <li>Under <b>Options</b>, choose the steps to run.</li>
   <li><b>Preview</b> changes nothing and shows what it can predict. It excludes tracks still inside archives, online
-      results and website cleanup inside tags. Then <b>See list</b> lets you untick tracks.</li>
+      results and website cleanup inside tags. If changes are available, use <b>See list</b> to untick tracks
+      and <b>Organize with the ticked ones</b> to apply your selection.</li>
   <li><b>Organize</b> makes the changes. You can <b>Cancel</b> halfway: what's done stays done.</li>
   <li>Afterwards, in <b>rekordbox</b>: <i>File › Manage Missing Files › Auto Relocate</i> (pick the folder), then in
       the Collection <i>Ctrl+A › right-click › Reload Tag</i>.</li>
@@ -157,7 +159,7 @@ HELP = {
 </ul>
 <h3>Useful options</h3>
 <ul>
-  <li><b>Protected folders</b> (under Library): folders the app never touches, for example your own edits.</li>
+  <li>Under <b>Tools → Protected folders</b>, choose folders to exclude, such as your own edits.</li>
   <li><b>Only new tracks:</b> becomes available after the first completed full organize of this library. Normally it
       only sorts later arrivals. Under <i>Also on old tracks…</i>, choose independently which steps to repeat on old
       tracks: genre sorting, duplicate removal, online genre lookup, BPM sorting, writing genre tags, cleaning

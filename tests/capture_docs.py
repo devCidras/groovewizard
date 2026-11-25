@@ -4,12 +4,17 @@ No music files, user settings, network service or installer are accessed. Run fr
 the repository root: ``python tests/capture_docs.py [output-directory]``.
 """
 
+import atexit
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 os.environ["QT_QPA_PLATFORM"] = "windows"
 os.environ["QT_SCALE_FACTOR"] = "1"
+profile = tempfile.TemporaryDirectory(prefix="groovewizard-docs-")
+atexit.register(profile.cleanup)
+os.environ["APPDATA"] = profile.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import Qt
@@ -42,7 +47,7 @@ def screenshot(widget, filename):
 def window(language="pt"):
     set_lang(language)
     w = Window()
-    w.resize(1600, 900)
+    w.resize(1100, 760)
     return w
 
 
@@ -75,6 +80,10 @@ config.load = lambda: (Options(root=ROOT, protected=[ROOT + r"\Os Meus Edits"]),
 gui.has_completed_full_run = lambda _root: True  # screenshot text only: never probe D:\musica
 
 screenshot(window(), "1-principal.png")
+for tab, filename in ((1, "11-opcoes.png"), (2, "12-fontes-online.png"), (3, "13-ferramentas.png")):
+    w = window()
+    w.tabs.setCurrentIndex(tab)
+    screenshot(w, filename)
 w = window()
 running(w)
 screenshot(w, "2-a-organizar.png")
@@ -130,4 +139,4 @@ w.scope_options["covers_all"] = True  # illustrate selecting only missing covers
 dialog, _ = w._old_scope_dialog()
 screenshot(dialog, "10-antigas.png")
 w.close()
-print(f"Saved ten offline screenshots to {OUT}")
+print(f"Saved screenshots to {OUT}")

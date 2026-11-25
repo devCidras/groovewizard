@@ -19,6 +19,23 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 > ⚠️ **Faz uma cópia de segurança antes da primeira utilização.** O GrooveWizard move ficheiros e altera tags. Tem
 > pré-visualização, desfazer e quarentena, mas são proteções, não substituem uma cópia de segurança.
 
+## Como usar
+
+1. Descarrega o instalador em [Releases](../../releases/latest), [verifica o download](#verificar-o-download) e abre a app. Na primeira utilização, escolhe o idioma e lê os termos.
+2. Em **Pasta das músicas**, carrega em **Escolher…** e indica a pasta da biblioteca. Em **Ferramentas → Pastas protegidas**, podes excluir os teus edits ou sets preparados.
+3. Carrega em **Pré-visualizar**. Quando houver alterações previstas, abre **Ver lista**, revê as ações e desmarca as faixas que queres manter como estão.
+4. Fecha o rekordbox ou o Serato. Para aplicar a seleção, usa **Organizar com as marcadas** dentro da lista. O botão **Organizar** da janela principal executa a organização completa segundo as opções atuais.
+5. Acompanha o progresso em **Atividade**. No rekordbox, usa *Ficheiro → Gerir faixas inexistentes → Auto Relocate* para voltar a localizar as faixas movidas e, depois, *Recarregar tag*.
+
+| Separador | O que encontras |
+|---|---|
+| **Atividade** | Configuração atual, progresso de cada passo e resumo da operação. |
+| **Opções** | Passos de organização, tratamento das faixas antigas e **Desligar o PC no fim**. Se ativares esta opção, uma organização concluída sem erros inicia uma contagem de 60 segundos que podes cancelar. |
+| **Fontes online** | Chaves opcionais de [Discogs](https://www.discogs.com/settings/developers) e [Last.fm](https://www.last.fm/api/account/create). **Verificar** testa a chave e **Limpar** remove-a. |
+| **Ferramentas** | Pastas protegidas, relatório, histórico para desfazer e quarentena. |
+
+A tecla **F1** abre a ajuda em qualquer separador.
+
 ## O que faz
 
 1. **Descompacta os packs** que descarregaste (`.zip`, `.rar`, `.7z`, mesmo packs dentro de packs). Para `.rar` e `.7z` é preciso o [7-Zip](https://7-zip.org).
@@ -38,19 +55,21 @@ Called <i>Cratekeeper</i> up to 1.1.0; updating keeps settings, keys and history
 
 ## Capturas
 
-Imagens da interface 1.8.1 com dados ilustrativos; não foi aberta nenhuma biblioteca de música para as criar.
+Estas capturas mostram a interface da versão em desenvolvimento neste repositório. As pastas e as faixas são exemplos. O instalador disponível em Releases pode corresponder a uma versão anterior.
 
 | A organizar | No fim |
 |---|---|
 | <img src="docs/2-a-organizar.png" alt="A organizar, com o progresso de cada passo"> | <img src="docs/3-resumo.png" alt="Resumo no fim da organização"> |
 | **Ver lista: o que vai mudar, faixa a faixa** | **Desfazer: voltar a uma organização anterior** |
 | <img src="docs/8-lista.png" alt="Lista do que vai mudar, com faixas desmarcadas"> | <img src="docs/9-desfazer.png" alt="Lista de organizações para desfazer"> |
+| **Opções de organização** | **Pastas protegidas e ferramentas** |
+| <img src="docs/11-opcoes.png" alt="Separador Opções com os passos e as opções de organização"> | <img src="docs/13-ferramentas.png" alt="Ferramentas com pastas protegidas, relatório, histórico e quarentena"> |
+| **Fontes online** | **Passos nas faixas antigas** |
+| <img src="docs/12-fontes-online.png" alt="Campos para verificar ou limpar as chaves de Discogs e Last.fm"> | <img src="docs/10-antigas.png" alt="Escolher os passos a repetir nas faixas antigas"> |
 | **Ajuda dentro da app** | **Termos na primeira utilização (EN)** |
 | <img src="docs/4-ajuda.png" alt="Ajuda"> | <img src="docs/5-termos-en.png" alt="Termos e Condições em inglês"> |
 | **Aviso de versão nova** | **Interface em inglês** |
 | <img src="docs/6-atualizacao.png" alt="Barra de atualização"> | <img src="docs/7-english.png" alt="Interface em inglês"> |
-
-<p align="center"><img src="docs/10-antigas.png" width="540" alt="Escolher os passos a repetir nas faixas antigas"></p>
 
 ## Proteções
 
@@ -62,19 +81,6 @@ Imagens da interface 1.8.1 com dados ilustrativos; não foi aberta nenhuma bibli
 - Pastas da pasta principal cujo nome começa por `_` (por exemplo `_Backup`) e atalhos de pasta (junções) são ignorados: a app nunca sai da biblioteca.
 - Os packs são descompactados para uma pasta temporária e só ficam com o nome final quando terminam; se o PC desligar a meio, o pack é descompactado outra vez na próxima organização.
 - Um pack que puseres à mão na pasta de entrada fica lá depois de descompactado, a não ser que ligues **Mandar packs para a quarentena depois de descompactar**.
-
-## Como usar
-
-1. Descarrega `GrooveWizard-<versão>-setup.exe` em [Releases](../../releases/latest) e confirma o ficheiro (ver [Verificar o download](#verificar-o-download)). O instalador não tem assinatura digital, por isso o Windows SmartScreen pode avisar.
-2. Na primeira vez escolhe o idioma e aceita os termos.
-3. Escolhe a pasta das músicas.
-4. (Recomendado) cola as chaves grátis e carrega em **Verificar**. **Limpar** apaga uma chave guardada:
-   - Discogs: <https://www.discogs.com/settings/developers> → *Generate new token*
-   - Last.fm: <https://www.last.fm/api/account/create> (só precisas da *API key*)
-5. **Fecha o rekordbox/Serato**, carrega em **Pré-visualizar** e depois em **Organizar**. Para deixar a correr de noite, liga **Desligar PC no fim**: se a organização terminar sem erros, o PC desliga-se (com 60 s para cancelar). Se houver um erro ou cancelares, fica ligado.
-6. No rekordbox: *Ficheiro → Gerir faixas inexistentes → Auto Relocate* (escolhe a pasta), depois *Recarregar tag*.
-
-Ajuda completa dentro da app (botão **Ajuda** ou F1).
 
 ## Requisitos e limites
 
@@ -128,6 +134,7 @@ python app.py
 ```
 
 - Testes: `python tests/test_pipeline.py` (também correm no GitHub a cada push, com build e arranque do `.exe`).
+- Atualizar as capturas do README no Windows: `python tests/capture_docs.py`. O script abre as janelas com dados de exemplo e grava as imagens em `docs/`.
 - Teste com dados reais (só lê a biblioteca, trabalha numa cópia): `python tests/teste_real.py D:\Musica D:\groovewizard-teste 150`
 - Gerar o `.exe` e o instalador: `powershell -File build.ps1` → `dist\GrooveWizard\` e `dist\GrooveWizard-<versão>-setup.exe` (precisa do [Inno Setup 6](https://jrsoftware.org/isinfo.php)).
 - Géneros, sinónimos de tags ("Afro House" → House), regras pelo nome dos packs e pastas-mãe: [`organizador/regras.py`](organizador/regras.py). Textos da interface (PT/EN): [`organizador/i18n.py`](organizador/i18n.py).
@@ -155,7 +162,15 @@ python app.py
 
 **Safeguards:** *Preview* changes nothing, but cannot show tracks still in packs, online results or site cleanup inside tags. *Undo…* goes back to recent organize runs. After 30 days, the next organize run sends old quarantine folders to the Recycle Bin. Tags are written to a checked copy first. Dangerous folders (whole drive, user folder, Windows, Program Files and AppData) are refused.
 
-**Use:** download the installer from [Releases](../../releases/latest) and [verify it](#verificar-o-download) (unsigned: SmartScreen may warn). Choose your music folder, paste free Discogs/Last.fm keys and press **Check** (*Clear* removes a saved key), close rekordbox/Serato, **Preview**, then **Organize**. Optionally turn on *Shut down when done*: the PC shuts down (60 s to cancel) only if the run finishes without errors. In rekordbox: *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
+### Getting started
+
+1. [Download the installer](../../releases/latest) and [verify its checksum](#verificar-o-download). On first launch, choose your language and review the terms.
+2. Choose your **Music folder**. Use **Tools** to protect any subfolders you want to leave untouched.
+3. Select **Preview**, then **See list** when changes are available. Untick any tracks you want to keep as they are.
+4. Close rekordbox or Serato. Select **Organize with the ticked ones** in the list to apply your selection, or **Organize** in the main window for a full run with the current options.
+5. Follow progress and results in **Activity**. To find moved tracks in rekordbox, use *File → Manage Missing Files → Auto Relocate*, then *Reload Tag*.
+
+**Options** controls the organization steps and optional PC shutdown after a successful run. **Online sources** holds the optional Discogs and Last.fm keys. **Tools** also provides the library report, quarantine and **Undo…**. Press **F1** for help. [See the English interface](docs/7-english.png)
 
 **Limits:** it does not touch rekordbox/Serato databases (playlists, cues, beat grids) — relocate files afterwards (documented for rekordbox; untested on Serato). Duplicate detection and online genres are heuristics. Tracks without a clear beat and M4A without a BPM tag go to `BPM unknown`. Uninstalling keeps `%APPDATA%\GrooveWizard`.
 
