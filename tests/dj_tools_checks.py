@@ -82,7 +82,8 @@ def check_catalogue_and_export_regressions(tmp, make):
         assert long_name in str(e)
     else:
         raise AssertionError("Published an unreadable copy from a stale catalogue")
-    assert list(target.iterdir()) == [result.parent]
+    assert {p.name for p in target.iterdir()} == {"DJ Set"}
+    assert (target / "DJ Set").samefile(result.parent)
 
 
 def check_dj_tools(tmp, make):
@@ -162,7 +163,8 @@ def check_dj_tools(tmp, make):
         assert False
     except pl.Cancelled:
         pass
-    assert list(usb.iterdir()) == [copied.parent]
+    assert {p.name for p in usb.iterdir()} == {"Weekend"}
+    assert (usb / "Weekend").samefile(copied.parent)
     class StopDuringCopy:
         def is_set(self):
             return any(path.stat().st_size > 0 for path in usb.glob(".groovewizard-*/*.wav"))
@@ -171,7 +173,7 @@ def check_dj_tools(tmp, make):
         assert False, "published a partial set"
     except pl.Cancelled:
         pass
-    assert list(usb.iterdir()) == [copied.parent]
+    assert {p.name for p in usb.iterdir()} == {"Weekend"}
     d.close()
 
     org = pl.Organizer(opts)
