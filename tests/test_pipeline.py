@@ -99,7 +99,8 @@ def test_full_run_and_undo():
     org = pl.Organizer(opts)
     assert org.preview()["archives_pending"] == 1
     assert not os.path.exists(os.path.join(root, pl.QUARANTINE)) and os.path.exists(os.path.join(root, "solta")), "preview changed files"
-    rep, errs = org.run()
+    reviewed = {p: keep for kind, p, keep in org.plan if kind == "dup"}
+    rep, errs = pl.Organizer(opts, reviewed_duplicates=reviewed).run(org.snapshot)
     assert os.path.exists(broken), "unreadable file must stay where it is"
     errs = [e for e in errs if "broken.mp3" not in e]
     assert not errs, errs
@@ -321,6 +322,54 @@ def test_duplicate_rules():
     assert losers == [radio], losers  # radio edit goes, extended stays, the remix is another track
 
 
+def test_reviewed_duplicates():
+    from pathlib import Path
+
+    root = Path(TMP) / "reviewed-duplicates"
+    keep = root / "House" / "A - Tune (Extended Mix).wav"
+    duplicate = root / "_entrada" / "A - Tune (Radio Edit).wav"
+    other = root / "House" / "B - Track (Extended Mix).wav"
+    packed = Path(TMP) / "B - Track (Radio Edit).wav"
+    make(str(keep), 20, "A", "Tune (Extended Mix)", "House")
+    make(str(duplicate), 5, "A", "Tune (Radio Edit)", "House")
+    make(str(other), 20, "B", "Track (Extended Mix)", "House")
+    make(str(packed), 5, "B", "Track (Radio Edit)", "House")
+    with zipfile.ZipFile(root / "new.zip", "w") as pack:
+        pack.write(packed, packed.name)
+
+    opts = pl.Options(root=str(root), online=False, bpm_folders=False, write_tags=False, clean_sites=False, families=False)
+    org = pl.Organizer(opts)
+    assert org.preview()["dups_pending"] == 1
+    reviewed = {path: best for kind, path, best in org.plan if kind == "dup"}
+    assert reviewed == {str(duplicate): str(keep)}
+    run = pl.Organizer(opts, reviewed_duplicates=reviewed)
+    rep, errors = run.run(org.snapshot)
+    assert not errors, errors
+    assert rep["dups_trashed"] == rep["dups_review"] == 1
+    assert {p.name for p in Path(run.qdir).rglob("*.wav")} == {duplicate.name}
+    assert keep.is_file() and other.is_file() and (other.parent / packed.name).is_file()
+
+
+def test_duplicate_content_check():
+    root = os.path.join(TMP, "duplicate-content")
+    directory = os.path.join(root, "House")
+    original = make(os.path.join(directory, "Artist - Tune (Extended Mix).wav"), 30, "Artist", "Tune", "House")
+    identical = shutil.copyfile(original, os.path.join(directory, "Copy.wav"))
+    edit = shutil.copyfile(original, os.path.join(directory, "Different recording.wav"))
+    with open(edit, "r+b") as audio:
+        audio.seek(180000)  # same tags, size and duration, one different PCM sample inside the recording
+        audio.write(b"\x01")
+    opts = pl.Options(root=root, extract=False, online=False, bpm_folders=False, write_tags=False,
+                      clean_sites=False, families=False)
+    org = pl.Organizer(opts)
+    assert org.preview()["dups_pending"] == 2
+    assert org.dup_details[original].identical(org.dup_details[identical])
+    assert not org.dup_details[original].identical(org.dup_details[edit])
+    rep, errors = pl.Organizer(opts).run()
+    assert not errors and rep["dups_trashed"] == rep["dups_review"] == 1
+    assert os.path.isfile(edit) and os.path.isfile(original) and not os.path.exists(identical)
+
+
 def test_update_versions():
     from organizador import atualizacoes as a
     assert a.newer("v1.0.10", "1.0.9") and a.newer("2.0.0", "1.9.9")
@@ -376,7 +425,7 @@ def test_protected_and_skip():
     except ValueError:
         pass
     os.remove(os.path.join(root, "novo.wav"))
-    rep, errs = pl.Organizer(opts, skip=[keep, untick]).run(expect=snap)
+    rep, errs = pl.Organizer(opts, skip=[keep, untick], reviewed_duplicates={dup: keep}).run(expect=snap)
     assert rep["dups_trashed"] == 1 and not os.path.exists(dup) and os.path.exists(keep)
 
     # a protected target folder: nothing is moved into it
@@ -916,7 +965,7 @@ def test_old_step_scopes():
     assert pl.Organizer(opts).preview()["dups_pending"] == 0
     opts.dedupe_all = True
     assert pl.Organizer(opts).preview()["dups_pending"] == 1
-    assert not pl.Organizer(opts).run()[1]
+    assert not pl.Organizer(opts, reviewed_duplicates={original: extended}).run()[1]
     assert not os.path.exists(original) and os.path.exists(extended)
 
     root = os.path.join(TMP, "old-step-online")
@@ -1512,7 +1561,7 @@ def test_audit_7z_update_and_dialogs():
 
 def test_gui_preview_state():
     from unittest.mock import patch
-    from PySide6.QtCore import QEventLoop, QTimer
+    from PySide6.QtCore import QEventLoop, QTimer, Qt
     from PySide6.QtWidgets import QApplication, QMessageBox
     from organizador import gui
     from organizador.janelas import PlanDialog
@@ -1525,16 +1574,19 @@ def test_gui_preview_state():
     for toggle in window.toggles.values():
         toggle.setChecked(False)
 
-    def preview():
+    def wait_for_worker():
         loop = QEventLoop()
         timeout = QTimer(singleShot=True)
         timeout.timeout.connect(loop.quit)
-        window.btn_preview.click()
         window.thread.finished.connect(loop.quit)
         timeout.start(10000)
         loop.exec()
         assert timeout.isActive() and window.thread is None
         app.processEvents()
+
+    def preview():
+        window.btn_preview.click()
+        wait_for_worker()
 
     preview()
     assert window.stats_grid.count() and not window.btn_plan.isHidden()
@@ -1558,6 +1610,74 @@ def test_gui_preview_state():
     window.lang_combo.setCurrentIndex(1 - window.lang_combo.currentIndex())
     assert window.btn_plan.isHidden() and window.stats_grid.count() == 0
     assert window.status.text() == gui.t("status.stopped")
+
+    root = os.path.join(TMP, "gui-duplicates")
+    window.folder.setText(root)
+    window.toggles["merge_versions"].setChecked(True)
+    keep = make(os.path.join(root, "House", "A - Groove (Extended Mix).wav"), 20, "A", "Groove (Extended Mix)", "House")
+    duplicate = make(os.path.join(root, "House", "A - Groove (Radio Edit).wav"), 5, "A", "Groove (Radio Edit)", "House")
+    second_keep = make(os.path.join(root, "House", "B - Tune (Extended Mix).wav"), 20, "B", "Tune (Extended Mix)", "House")
+    second_dup = make(os.path.join(root, "House", "B - Tune (Radio Edit).wav"), 5, "B", "Tune (Radio Edit)", "House")
+    preview()
+    assert window.btn_plan.text() == gui.t("btn.plan_duplicates", n=2), window._plan
+
+    def review(dialog):
+        row = dialog.paths.index(duplicate)
+        dialog.table.setCurrentCell(row, 1)
+        assert dialog.table.item(row, 1).text() == os.path.basename(duplicate)
+        assert dialog.table.item(row, 2).text() == os.path.basename(keep)
+        assert duplicate in dialog.pair.text() and keep in dialog.pair.text()
+        assert dialog.table.item(row, 0).checkState() == Qt.Unchecked
+        dialog.play_remove.click()
+        if dialog.player is None:
+            assert dialog.audio_status.text() == gui.t("plan.no_audio_device")
+        else:
+            assert os.path.normcase(dialog.player.source().toLocalFile()) == os.path.normcase(duplicate)
+            dialog.play_keep.click()
+            assert os.path.normcase(dialog.player.source().toLocalFile()) == os.path.normcase(keep)
+            dialog.stop.click()
+            assert dialog.player.source().isEmpty()
+        dialog.table.item(dialog.paths.index(second_dup), 0).setCheckState(Qt.Checked)
+        return PlanDialog.Accepted
+
+    with patch.object(PlanDialog, "exec", review), patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+        window.btn_run.click()
+        wait_for_worker()
+    assert os.path.isfile(duplicate) and os.path.isfile(keep) and os.path.isfile(second_keep)
+    assert not os.path.exists(second_dup) and window._last_rep["dups_trashed"] == 1
+
+    # The dedicated action keeps other checked moves, tags and archives out of this run.
+    loose = make(os.path.join(root, "_entrada", "Loose.wav"), 3, "C", "Loose", "Techno")
+    copy = os.path.join(root, "_entrada", "Groove copy.wav")
+    shutil.copy2(keep, copy)
+    archive = os.path.join(root, "Pack.zip")
+    with zipfile.ZipFile(archive, "w") as pack:
+        pack.write(loose, "Packed.wav")
+    window.toggles["extract"].setChecked(True)
+    preview()
+
+    swapped = {}
+    def swap_and_quarantine(dialog):
+        row = next(i for i, survivor in dialog._duplicate_rows.items() if {dialog.paths[i], survivor} == {copy, keep})
+        kept, removed = dialog.paths[row], dialog._duplicate_rows[row]
+        swapped[removed] = kept
+        dialog.table.setCurrentCell(row, 1)
+        assert dialog.table.item(row, 0).checkState() == Qt.Checked
+        assert gui.t("plan.reason_exact") in dialog.pair.text()
+        dialog.swap.click()
+        assert dialog.reviewed_duplicates() == swapped
+        dialog.quarantine_btn.click()
+        return dialog.result()
+
+    with patch.object(PlanDialog, "exec", swap_and_quarantine), patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
+        window.btn_plan.click()
+        wait_for_worker()
+    removed, kept = next(iter(swapped.items()))
+    assert all(os.path.isfile(p) for p in (loose, kept, duplicate, archive)) and not os.path.exists(removed)
+    assert window._last_rep["dups_trashed"] == 1 and window.rows["organize"].current == "off"
+    assert not any("Packed.wav" in files for _, _, files in os.walk(root))
+    _, errors = pl.undo_last(root)
+    assert not errors and os.path.isfile(keep) and os.path.isfile(copy)
     window.close()
 
 
@@ -1748,6 +1868,18 @@ def test_concurrent_move_and_undo_conflicts():
     assert not errors and original.is_file() and not end.exists() and not middle.exists()
 
 
+def test_dj_tools():
+    from dj_tools_checks import check_dj_tools, check_catalogue_and_export_regressions
+    from duplicate_review_fixes import check_duplicate_review_fixes
+    from history_review_fixes import check_history_fixes
+    from radar_review_fixes import check_radar_review
+    check_dj_tools(TMP, make)
+    check_catalogue_and_export_regressions(TMP, make)
+    check_history_fixes(TMP)
+    check_radar_review(TMP, make)
+    check_duplicate_review_fixes(TMP, make)
+
+
 if __name__ == "__main__":
     try:
         test_rules()
@@ -1755,6 +1887,8 @@ if __name__ == "__main__":
         test_versions_option()
         test_update_versions()
         test_duplicate_rules()
+        test_reviewed_duplicates()
+        test_duplicate_content_check()
         test_lock()
         test_quarantine_ownership()
         test_full_run_and_undo()
@@ -1782,6 +1916,7 @@ if __name__ == "__main__":
         test_cancel_reopen_and_undo()
         test_deep_audit_regressions()
         test_concurrent_move_and_undo_conflicts()
+        test_dj_tools()
         print("ok")
     finally:
         if os.environ.get("GROOVEWIZARD_TEST_TMP"):

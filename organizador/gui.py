@@ -199,6 +199,7 @@ class Worker(QObject):
         self.kind, self.opts, self.keys, self.cancel = kind, opts, keys, cancel
         self.extra = extra or {}  # undo: {"until": run_id}; run: {"skip": [paths unticked in the review list]}
         self.repeated = []
+        self.dup_details = {}
         self.plan, self.snapshot, self.report_path = [], None, None  # results the window reads after a preview / report
         self._answer, self._answered = False, threading.Event()
 
@@ -238,9 +239,11 @@ class Worker(QObject):
                 self.report_path = path
             else:
                 org = Organizer(self.opts, self.keys, emit, self.cancel, ask_rename=self.ask_rename,
-                                skip=self.extra.get("skip"))
-                rep, errs = (org.preview(), []) if self.kind == "preview" else org.run(self.extra.get("snapshot"))
-                self.plan, self.snapshot = org.plan, org.snapshot
+                                skip=self.extra.get("skip"), reviewed_duplicates=self.extra.get("reviewed_duplicates"),
+                                keeper_choices=self.extra.get("keeper_choices"))
+                rep, errs = (org.preview(), []) if self.kind == "preview" else org.run(
+                    self.extra.get("snapshot"), duplicates_only=self.kind == "duplicates")
+                self.plan, self.snapshot, self.dup_details = org.plan, org.snapshot, org.dup_details
             self.finished.emit(self.kind, rep, errs)
         except Cancelled:
             message = {"run": "msg.cancelled", "undo": "msg.undo_cancelled"}.get(self.kind, "status.cancelled")
@@ -268,6 +271,7 @@ class Window(QMainWindow):
         self.current_row = None
         self._updating = False
         self._plan, self._plan_opts, self._plan_snapshot = [], None, None
+        self._dup_details = {}
         self._last_rep = {}
         self._key_ui = {}
         self._next_key_check = 0
@@ -345,6 +349,13 @@ class Window(QMainWindow):
         self._options_page(opts, shutdown)
         self._sources_page(keys)
         self._tools_page(opts)
+        self._dj_page()
+        from .radar_ui import RadarPage
+        self.radar = RadarPage(lambda: self.current()[0], self.tabs)
+        self.tabs.addTab(self.radar, "Radar DJ")
+        self.folder.textChanged.connect(self.radar.invalidate_library)
+        self.protected.model().rowsInserted.connect(self.radar.invalidate_library)
+        self.protected.model().rowsRemoved.connect(self.radar.invalidate_library)
         self.tabs.currentChanged.connect(self._refresh_overview)
         self._refresh_overview(0)
         self.tabs.setCurrentIndex(tab)
@@ -388,7 +399,7 @@ class Window(QMainWindow):
                                        toolTip=t("btn.preview_tip"))
         self.btn_preview.clicked.connect(lambda: self.start("preview"))
         self.btn_run = QPushButton(t("btn.run"), cursor=Qt.PointingHandCursor)
-        self.btn_run.clicked.connect(lambda: self.start("run"))
+        self.btn_run.clicked.connect(self.organize)
         self.btn_plan = QPushButton(objectName="review", cursor=Qt.PointingHandCursor, toolTip=t("btn.plan_tip"))
         self.btn_plan.clicked.connect(self.show_plan)
         self.btn_plan.hide()
@@ -574,6 +585,54 @@ class Window(QMainWindow):
             lay.addWidget(button)
         lay.addStretch()
         page.addStretch()
+
+    def _dj_page(self):
+        page = tab_page(self.tabs, "dj.library")
+        columns = self._page_columns(page)
+        review, left = card(t("dj.review"), t("dj.review_hint"))
+        sets, right = card(t("dj.set"), t("dj.set_hint"))
+        columns.addWidget(review, 1)
+        columns.addWidget(sets, 1)
+        self.dj_buttons = []
+        for key, layout in (("dj.review", left), ("dj.import_xml", left), ("dj.history", left), ("dj.set", right)):
+            action = QPushButton(t(key), cursor=Qt.PointingHandCursor)
+            action.clicked.connect(lambda _, k=key: self.open_dj_tool(k))
+            layout.addWidget(action)
+            self.dj_buttons.append(action)
+        left.addStretch()
+        right.addStretch()
+        page.addStretch()
+
+    def open_dj_tool(self, key):
+        from . import biblioteca
+        from .dj_ui import ReviewDialog, SetDialog, TrackHistoryDialog, import_xml_dialog, perform
+        from .pipeline import track_history
+        opts, _ = self.current()
+        if not os.path.isdir(opts.root) or too_broad(opts.root):
+            QMessageBox.information(self, t("card.library"), t("msg.pick_folder"))
+            return
+        if key == "dj.import_xml":
+            result = import_xml_dialog(self, opts.root)
+            if result is not None:
+                n = sum(bool(names) for names in result["tracks"].values())
+                QMessageBox.information(self, t(key), t("dj.xml_loaded", name=result["xml"], n=n))
+            return
+        if key == "dj.history":
+            entries = perform(self, t(key), lambda _: track_history(opts))
+            if entries is None:
+                return
+            dialog = TrackHistoryDialog(opts, entries, self)
+        else:
+            review = key == "dj.review"
+            opts = replace(opts, dedupe=True) if review else opts
+            catalog = perform(self, t(key), lambda c: biblioteca.catalogue(opts, c, duplicates=review))
+            if catalog is None:
+                return
+            dialog = ReviewDialog(opts, catalog, self) if review else SetDialog(opts, catalog[0].values(), self)
+        dialog.exec()
+        dialog.deleteLater()
+        if key in ("dj.review", "dj.history"):
+            self.radar.invalidate_library()
 
     # ---------- building blocks ----------
 
@@ -799,7 +858,7 @@ class Window(QMainWindow):
     def busy(self, on):
         for w in (self.btn_preview, self.btn_run, self.btn_undo, self.btn_purge, self.btn_quarantine, self.btn_report, self.btn_plan,
                   self.btn_covers, self.btn_old_scope, self.protected, self.protect_add, self.protect_del, self.folder, self.pick_btn, self.discogs, self.lastfm,
-                  self.lang_combo, *self._key_controls, *self.toggles.values()):
+                  self.lang_combo, *self.dj_buttons, *self._key_controls, *self.toggles.values()):
             w.setEnabled(not on)
         for service, (check, _) in self._key_ui.items():
             check.setEnabled(not on and service not in self._checking)
@@ -814,6 +873,8 @@ class Window(QMainWindow):
         for field, r in self.step_rows:
             if kind == "preview":
                 on = field == "_organize" or (field in ("extract", "dedupe") and getattr(opts, field))
+            elif kind == "duplicates":
+                on = field == "dedupe"
             elif kind in ("undo", "purge", "report", "covers_scan"):
                 on = False
             elif field == "write_tags":
@@ -839,6 +900,11 @@ class Window(QMainWindow):
             return
         if kind == "run" and QMessageBox.question(self, t("btn.run"), t("msg.run_confirm", root=opts.root)) != QMessageBox.Yes:
             return
+        if kind == "duplicates":
+            count = len(extra["reviewed_duplicates"])
+            if not count or QMessageBox.question(self, t("plan.quarantine_only"),
+                                                  t("plan.quarantine_confirm", n=count)) != QMessageBox.Yes:
+                return
         risky_old = (opts.organize_all or (opts.dedupe and opts.dedupe_all)
                      or (opts.online and opts.online_all) or (opts.bpm_folders and opts.bpm_all)
                      or (opts.site_covers and opts.site_covers_all))
@@ -917,12 +983,20 @@ class Window(QMainWindow):
     def _update_plan_button(self):
         if self._plan:
             tracks = len({p for _, p, _ in self._plan})
-            self.btn_plan.setText(t("btn.plan", n=f"{tracks:,}".replace(",", " ")))
+            label = "btn.plan_duplicates" if all(kind == "dup" for kind, _, _ in self._plan) else "btn.plan"
+            self.btn_plan.setText(t(label, n=f"{tracks:,}".replace(",", " ")))
         self.btn_plan.setVisible(bool(self._plan))
 
     def _clear_plan(self):
         self._plan, self._plan_opts, self._plan_snapshot = [], None, None
+        self._dup_details = {}
         self.btn_plan.hide()
+
+    def organize(self):
+        if any(kind == "dup" for kind, _, _ in self._plan):
+            self.show_plan()
+        else:
+            self.start("run")
 
     def show_plan(self):
         from .janelas import PlanDialog
@@ -931,10 +1005,11 @@ class Window(QMainWindow):
             self._clear_plan()
             QMessageBox.information(self, t("plan.title"), t("plan.stale"))
             return
-        d = PlanDialog(self._plan, opts.root, self)
-        if d.exec() != PlanDialog.Accepted:
+        d = PlanDialog(self._plan, opts.root, self, details=self._dup_details)
+        result = d.exec()
+        d.deleteLater()
+        if result != PlanDialog.Accepted:
             return
-        skip = d.skipped()
         try:
             same = Organizer(opts).library_snapshot() == self._plan_snapshot
         except (OSError, ValueError):
@@ -943,7 +1018,9 @@ class Window(QMainWindow):
             self._clear_plan()
             QMessageBox.information(self, t("plan.title"), t("plan.stale"))
             return
-        self.start("run", opts, keys, {"skip": skip, "snapshot": self._plan_snapshot})  # checked again under the lock
+        self.start("duplicates" if d.quarantine_only else "run", opts, keys,
+                   {"skip": [] if d.quarantine_only else d.skipped(), "snapshot": self._plan_snapshot,
+                    "reviewed_duplicates": d.reviewed_duplicates(), "keeper_choices": d.keeper_choices})
 
     def do_cancel(self):
         self.cancel.set()
@@ -1014,6 +1091,8 @@ class Window(QMainWindow):
         self.busy(False)
 
     def on_finished(self, kind, rep, errs):
+        if kind in ("run", "duplicates", "undo"):
+            self.radar.invalidate_library()
         QTimer.singleShot(0, lambda: self._maybe_shutdown(kind, tuple(errs)))  # after the results are on screen
         self._last_rep = rep
         self.bar.setMaximum(1)
@@ -1038,6 +1117,7 @@ class Window(QMainWindow):
         if kind == "preview":
             self.log.appendPlainText(t("log.preview_limits"))
             self._plan, self._plan_snapshot = self.worker.plan, self.worker.snapshot
+            self._dup_details = self.worker.dup_details
             self._plan_opts = asdict(self.worker.opts)
             self._update_plan_button()
         if kind == "covers_scan":

@@ -9,7 +9,7 @@ import unicodedata
 import mutagen
 from mutagen.aiff import AIFF, AIFFFile, error as AIFFError
 from mutagen.flac import FLAC
-from mutagen.id3 import TCON
+from mutagen.id3 import TCON, TIT2, TPE1
 from mutagen.id3._file import find_id3v1
 from mutagen.id3._util import BitPaddedInt
 from mutagen.mp3 import MP3
@@ -103,9 +103,27 @@ def _load_aiff(file, filename):
         return AIFF(_AIFFTagReader(file, chunk.data_offset, available), filename=filename)
 
 
+if os.name == "nt":
+    import _winapi
+    import msvcrt
+
+    def shared_read_opener(path, flags):
+        """Allow Windows to rename or replace a track while a background reader is inspecting it."""
+        share_read_write_delete = 0x1 | 0x2 | 0x4
+        handle = _winapi.CreateFile(path, _winapi.GENERIC_READ, share_read_write_delete,
+                                    0, _winapi.OPEN_EXISTING, 0x80, 0)
+        try:
+            return msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+        except BaseException:
+            _winapi.CloseHandle(handle)
+            raise
+else:
+    shared_read_opener = None  # POSIX already allows replacing an open file
+
+
 def _load(path):
     filename = os.fspath(path)
-    with open(filename, "rb") as file:
+    with open(filename, "rb", opener=shared_read_opener) as file:
         header = file.read(12)
         file.seek(0)
         if header.startswith(b"fLaC"):
@@ -203,7 +221,10 @@ def _set_genre(f, ext, genre):
 
 def tag_bpm(path):
     f = _open(path)
-    t = f.tags if f else None
+    return _bpm_tag(f.tags) if f is not None else None
+
+
+def _bpm_tag(t):
     if not t:
         return None
     for k in ("TBPM", "bpm", "BPM", "tmpo"):
@@ -236,15 +257,15 @@ _ARTIST = {"id3": "TPE1", "vorbis": "artist", "mp4": "\xa9ART"}
 _TITLE = {"id3": "TIT2", "vorbis": "title", "mp4": "\xa9nam"}
 
 
-def _first(tags, key):
+def _text_values(tags, key):
     try:
         v = tags.get(key)
     except Exception:
-        return ""
+        return ()
     if v is None:
-        return ""
+        return ()
     v = v.text if hasattr(v, "text") else v
-    return str(v[0]) if v else ""
+    return tuple(str(value) for value in v)
 
 
 # ---------- cover art ----------
@@ -467,7 +488,7 @@ def remove_cover(path, digest):
 def read_info(path):
     """Everything the organizer needs from one file, with a single open: genre text, artist, title, duration."""
     f = _open(path)
-    info = {"genre": "", "artist": "", "title": "", "duration": 0.0, "bitrate": 0, "cover": False,
+    info = {"genre": "", "artist": "", "artists": (), "title": "", "duration": 0.0, "bpm": None, "bitrate": 0, "cover": False,
             "format": "", "unreadable": f is None}
     if f is None:
         return info
@@ -478,7 +499,10 @@ def read_info(path):
     if not f.tags:
         return info
     kind = "id3" if ext in ID3_EXT else "mp4" if ext == ".m4a" else "vorbis"
-    info["artist"], info["title"] = _first(f.tags, _ARTIST[kind]), _first(f.tags, _TITLE[kind])
+    info["bpm"] = _bpm_tag(f.tags)
+    info["artists"] = _text_values(f.tags, _ARTIST[kind])
+    info["artist"] = next(iter(info["artists"]), "")
+    info["title"] = next(iter(_text_values(f.tags, _TITLE[kind])), "")
     for k in GENRE_KEYS:
         try:
             if k in f.tags:
@@ -751,7 +775,7 @@ def _save_cover(f, ext, v2_version):
     _save(f, ext, v2_version, id3v1=_id3v1(f.filename) if ext == ".mp3" else None)
 
 
-def fix_tags(path, genre=None, clean=False):
+def fix_tags(path, genre=None, clean=False, *, credits=None):
     """genre: None = leave, '' = remove, text = set. One save for both edits. -> (genre_changed, site_fields_changed)."""
     f = _load(path)
     if f is None:
@@ -763,7 +787,20 @@ def fix_tags(path, genre=None, clean=False):
         _set_genre(f, ext, genre)
         g = 1
     s = _clean(f, ext, True) if clean and f.tags else 0
-    if g or s:
+    if credits:
+        if f.tags is None:
+            f.add_tags()
+        for field, value in credits.items():
+            keys, frame = {"artist": (_ARTIST, TPE1), "title": (_TITLE, TIT2)}[field]
+            if ext in ID3_EXT:
+                f.tags.setall(keys["id3"], [frame(encoding=3, text=[value])] if value else [])
+            else:
+                key = keys["mp4" if ext == ".m4a" else "vorbis"]
+                if value:
+                    f.tags[key] = [value]
+                elif key in f.tags:
+                    del f.tags[key]
+    if g or s or credits:
         _save(f, ext, version)
     return g, s
 

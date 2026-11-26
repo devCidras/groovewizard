@@ -15,6 +15,33 @@ def check_bpm():
         measured = bpm.measure(p)
         if measured != 125:
             raise RuntimeError(f"BPM: {measured}")
+        # Exercise the packaged player and codec without depending on speakers in CI.
+        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtMultimedia import QAudioBufferOutput, QMediaPlayer
+        player, output = QMediaPlayer(), QAudioBufferOutput()
+        player.setAudioBufferOutput(output)
+        loop = QEventLoop()
+        decoded = []
+
+        def got_buffer(buffer):
+            if buffer.frameCount():
+                decoded.append(buffer.frameCount())
+                loop.quit()
+
+        output.audioBufferReceived.connect(got_buffer)
+        player.errorOccurred.connect(loop.quit)
+        timeout = QTimer(singleShot=True, interval=10000)
+        timeout.timeout.connect(loop.quit)
+        timeout.start()
+        player.setSource(QUrl.fromLocalFile(p))
+        player.play()
+        if not decoded and not player.errorString():
+            loop.exec()
+        error = player.errorString()
+        player.stop()
+        player.setSource(QUrl())
+        if not decoded:
+            raise RuntimeError(f"Audio preview: {error or 'no decoded audio'}")
 
 
 def self_test():

@@ -34,7 +34,10 @@ HELP = {
   <li>Em <b>Opções</b>, escolhe os passos da organização.</li>
   <li><b>Pré-visualizar</b> não mexe em nada e mostra as mudanças que consegue prever. Não inclui faixas ainda dentro
       dos packs, resultados online nem limpeza de sites dentro das tags. Se houver alterações previstas, usa
-      <b>Ver lista</b> para desmarcar faixas e <b>Organizar com as marcadas</b> para aplicar a seleção.</li>
+      <b>Ver lista</b> ou <b>Ver repetidas</b>. Só as cópias com conteúdo idêntico ficam marcadas por defeito.
+      Seleciona uma linha para ver as versões e durações, ouvir as duas faixas ou trocar a cópia que fica.
+      <b>Enviar só as repetidas marcadas</b> leva essas cópias para a quarentena. <b>Organizar com as marcadas</b>
+      também executa os restantes passos da organização.</li>
   <li><b>Organizar</b> faz as mudanças. Podes <b>Cancelar</b> a meio: o que já foi feito fica feito.</li>
   <li>No fim, no <b>rekordbox</b>: <i>Ficheiro › Gerir faixas inexistentes › Auto Relocate</i> (escolhe a pasta) e
       depois, na Coleção, <i>Ctrl+A › botão direito › Recarregar tag</i>.</li>
@@ -49,8 +52,8 @@ HELP = {
   <li><b>Género:</b> cada faixa vai para a pasta do seu género (ex.: <code>House\\Tech House</code>). Se a faixa não
       disser o género, usa o nome do pack; se não houver nada, vai para <code>Sem Genero</code>, separada por BPM.
       Se a faixa não traz o BPM, a app mede-o (exceto M4A); sem batida clara vai para <code>BPM desconhecido</code>.</li>
-  <li><b>Repetidas:</b> se tens a mesma faixa duas vezes, fica a melhor (a Extended, senão a mais longa). A outra vai
-      para a <b>quarentena</b>. Por defeito, Radio Edit e Club Mix contam como a mesma faixa que Original/Extended.</li>
+  <li><b>Repetidas:</b> a app sugere guardar a Extended ou a versão mais longa. Se os ficheiros tiverem conteúdo
+      diferente, a remoção precisa de ser marcada na pré-visualização.</li>
   <li><b>Outros:</b> géneros de uma lista fixa (Pop, Hardstyle, Blues, Dub…) ficam juntos em <code>Outros</code>.</li>
   <li><b>Tags:</b> grava o género dentro da faixa e tira nomes de sites (ex.: <code>www.djsoundtop.com</code>) do
       título, álbum e comentários.</li>
@@ -101,6 +104,14 @@ HELP = {
   <li>As definições e chaves ficam em <code>%APPDATA%\\GrooveWizard</code>, fora da pasta das músicas (não aparecem
       se a partilhares no Soulseek / Nicotine+).</li>
 </ul>
+<h3>Biblioteca DJ e Radar DJ</h3>
+<ul>
+  <li>Em <b>Por rever</b>, compara e ouve as cópias, corrige as tags ou adia a decisão. Usa a opção de ver as adiadas para voltares a elas.</li>
+  <li>Importa um XML exportado do rekordbox para veres as playlists de cada cópia na comparação. A app procura o caminho completo do ficheiro. Volta a exportar e a importar o XML depois de mover faixas ou alterar playlists.</li>
+  <li>Em <b>Histórico por música</b>, procura parte do nome para ver a origem, o destino e o motivo. Podes recuperar uma faixa que ainda esteja na quarentena.</li>
+  <li>Em <b>Preparar um set</b>, filtra por género e BPM e marca as músicas pela ordem do set. Confere a duração e o espaço antes de exportar. A pen recebe uma pasta nova com as cópias e uma playlist M3U8.</li>
+  <li>Abre o <b>Radar DJ</b> para receber notícias. Depois da primeira consulta, os feeds atualizam-se a cada 15 minutos enquanto a app estiver aberta. Seleciona uma notícia para abrir o original ou ver faixas tuas dos artistas mencionados. A pesquisa de artistas é local.</li>
+</ul>
 <h3>Problemas comuns</h3>
 <ul>
   <li><b>Os .rar não descompactam:</b> instala o <a href="https://7-zip.org">7-Zip</a>.</li>
@@ -118,8 +129,10 @@ HELP = {
       that don't have one.</li>
   <li>Under <b>Options</b>, choose the steps to run.</li>
   <li><b>Preview</b> changes nothing and shows what it can predict. It excludes tracks still inside archives, online
-      results and website cleanup inside tags. If changes are available, use <b>See list</b> to untick tracks
-      and <b>Organize with the ticked ones</b> to apply your selection.</li>
+      results and website cleanup inside tags. If changes are available, open <b>See list</b> or <b>See duplicates</b>.
+      Only byte-identical copies are ticked by default. Select a row to see versions and lengths, listen to both
+      tracks or swap which copy stays. <b>Quarantine selected duplicates only</b> sends those copies to quarantine.
+      <b>Organize with the ticked ones</b> also runs the other organizing steps.</li>
   <li><b>Organize</b> makes the changes. You can <b>Cancel</b> halfway: what's done stays done.</li>
   <li>Afterwards, in <b>rekordbox</b>: <i>File › Manage Missing Files › Auto Relocate</i> (pick the folder), then in
       the Collection <i>Ctrl+A › right-click › Reload Tag</i>.</li>
@@ -134,8 +147,8 @@ HELP = {
   <li><b>Genre:</b> each track goes to the folder of its genre (e.g. <code>House\\Tech House</code>). If the track has
       no genre, the pack name is used; with nothing at all it goes to <code>No Genre</code>, split by BPM.
       If a track doesn't have its BPM, the app measures it (except M4A); with no clear beat it goes to <code>BPM unknown</code>.</li>
-  <li><b>Duplicates:</b> if you have the same track twice, the best one stays (the Extended, else the longest). The
-      other goes to <b>quarantine</b>. By default Radio Edit and Club Mix count as the same track as Original/Extended.</li>
+  <li><b>Duplicates:</b> the app suggests keeping the Extended or the longest version. If the contents differ,
+      the removal needs to be ticked in Preview.</li>
   <li><b>Other:</b> genres on a fixed list (Pop, Hardstyle, Blues, Dub…) go together in <code>Other</code>.</li>
   <li><b>Tags:</b> saves the genre inside the track and removes website names (e.g. <code>www.djsoundtop.com</code>)
       from the title, album and comments.</li>
@@ -183,6 +196,14 @@ HELP = {
       first organize reads a piece of every track; in a big library that takes a few extra minutes, only that once.</li>
   <li>Settings and keys are kept in <code>%APPDATA%\\GrooveWizard</code>, outside your music folder (they don't show
       up if you share it on Soulseek / Nicotine+).</li>
+</ul>
+<h3>DJ library and Radar DJ</h3>
+<ul>
+  <li>In the <b>Review inbox</b>, compare and listen to copies, edit tags or defer a decision. Use the deferred view to come back to it.</li>
+  <li>Import a rekordbox XML export to see playlists for each copy. The app matches the full file path. Export and import a fresh XML after moving tracks or changing playlists.</li>
+  <li>In <b>Track history</b>, search part of a file name to see where a track went and why. Restore individual tracks that are still in quarantine.</li>
+  <li>In <b>Prepare a set</b>, filter by genre and BPM and tick tracks in running order. Check the duration and space before exporting a new USB folder with the copies and an M3U8 playlist.</li>
+  <li>Open <b>Radar DJ</b> to load the news. Feeds then refresh every 15 minutes while the app is open. Select a headline to open the original or see your tracks by the artists mentioned. Artist matching runs locally.</li>
 </ul>
 <h3>Common problems</h3>
 <ul>

@@ -16,14 +16,14 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # pacotes grandes que a app nao usa, se estiverem instalados neste PC.
 # Modulos Qt que a app nao usa ficam de fora (e alguns, como o VirtualKeyboard, nao sao LGPL).
-$excl = "librosa numba scipy sklearn PySide6.QtNetwork PySide6.QtQml PySide6.QtQuick PySide6.QtPdf PySide6.QtOpenGL PySide6.QtVirtualKeyboard".Split(" ") | ForEach-Object { "--exclude-module", $_ }
+$excl = "librosa numba scipy sklearn PySide6.QtQml PySide6.QtQuick PySide6.QtPdf PySide6.QtOpenGL PySide6.QtVirtualKeyboard".Split(" ") | ForEach-Object { "--exclude-module", $_ }
 python -m PyInstaller --noconfirm --clean --windowed --name GrooveWizard --icon organizador\recursos\groovewizard.ico `
     --add-data "organizador\recursos;organizador\recursos" @excl app.py
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # o hook do PySide6 copia DLLs do Qt mesmo sem os modulos: tirar as que nao sao usadas
 $qt = "dist\GrooveWizard\_internal\PySide6"
-$unused = "Qt6VirtualKeyboard.dll Qt6Pdf.dll Qt6Qml.dll Qt6QmlMeta.dll Qt6QmlModels.dll Qt6QmlWorkerScript.dll Qt6Quick.dll Qt6Network.dll Qt6OpenGL.dll QtNetwork.pyd opengl32sw.dll plugins\imageformats\qpdf.dll plugins\generic\qtuiotouchplugin.dll".Split(" ")
+$unused = "Qt6VirtualKeyboard.dll Qt6Pdf.dll Qt6Qml.dll Qt6QmlMeta.dll Qt6QmlModels.dll Qt6QmlWorkerScript.dll Qt6Quick.dll Qt6OpenGL.dll opengl32sw.dll plugins\imageformats\qpdf.dll plugins\generic\qtuiotouchplugin.dll".Split(" ")
 foreach ($f in $unused) { if (Test-Path "$qt\$f") { Remove-Item -LiteralPath "$qt\$f" -Force } }
 foreach ($d in "plugins\platforminputcontexts", "plugins\networkinformation", "plugins\tls", "qml") {
     if (Test-Path "$qt\$d") { Get-ChildItem -LiteralPath "$qt\$d" -File -Recurse | Remove-Item -Force; Remove-Item -LiteralPath "$qt\$d" -Recurse -Force }
@@ -40,7 +40,7 @@ Pop-Location
 if (-not $ok) { Write-Error "o .exe nao arranca ou nao fecha corretamente depois de tirar os modulos Qt"; exit 1 }
 
 # nenhum plugin/DLL do Qt pode depender de uma DLL que foi tirada
-$gone = "Qt6Pdf Qt6Network Qt6Qml Qt6Quick Qt6OpenGL Qt6VirtualKeyboard".Split(" ")
+$gone = "Qt6Pdf Qt6Qml Qt6Quick Qt6OpenGL Qt6VirtualKeyboard".Split(" ")
 $broken = Get-ChildItem $qt -Recurse -Include *.dll, *.pyd | Where-Object {
     $bytes = [System.IO.File]::ReadAllBytes($_.FullName); $text = [System.Text.Encoding]::ASCII.GetString($bytes)
     $gone | Where-Object { $text.Contains("$_.dll") } }

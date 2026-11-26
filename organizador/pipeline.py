@@ -22,7 +22,7 @@ import zipfile
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from send2trash import send2trash
 
@@ -34,7 +34,7 @@ from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
 from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
                    normalize_genre, pack_file_name, raw_genre, read_info, remove_cover, restore, search_terms, clean_file_name,
                    set_cover, snapshot, snapshot_matches, track_key, version_label, cover_digest, pictures,
-                   picture_records, put_back_cover)
+                   picture_records, put_back_cover, shared_read_opener)
 
 APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "GrooveWizard")
 for _old in ("Cratekeeper", "OrganizadorMusica"):  # names before v1.2 / v0.2
@@ -56,6 +56,7 @@ REMOVED_COVERS = "capas_tiradas"  # in the library's data folder: site covers ta
 MARKED_COVERS = os.path.join(APP_DIR, "capas_marcadas.json")  # covers the user said are not real ones
 INVENTORY = "faixas_conhecidas.json"  # tracks the app has seen: anything else is new (see Organizer.is_new)
 BPM_CACHE = "bpm_medidos.json"
+DEFERRED_FILE = "por_rever.json"
 BPM_CACHE_VERSION = 1
 QUARANTINE_MARK = ".quarentena-da-app"  # written by the app; a _quarentena without it is not ours
 RUN_DIR = re.compile(r"^\d{8}-\d{6}-\d+-\d+$")  # run_id format
@@ -142,10 +143,20 @@ def _write_json(path, obj):
 
 def _read_json(path, default):
     try:
-        with open(path, encoding="utf-8", errors="surrogatepass") as fh:
+        with open(path, encoding="utf-8", errors="surrogatepass", opener=shared_read_opener) as fh:
             return json.load(fh)
     except (OSError, ValueError):  # missing/busy/bad JSON or bad bytes: cache/state can be rebuilt
         return default
+
+
+def read_deferred(root):
+    path = os.path.join(data_dir_for(root, create=False), DEFERRED_FILE)
+    # A sharing violation at os.replace can leave the complete updated decisions beside the previous file.
+    for candidate in (path + ".tmp", path):
+        items = _read_json(candidate, None)
+        if isinstance(items, dict):
+            return items
+    return {}
 
 
 @contextmanager
@@ -180,6 +191,17 @@ def _inside(path, parent):
         return False
 
 
+def _direct_library_path(root, path, resolved_root=None):
+    """Allow an alias for the selected root, while rejecting links below that root."""
+    root = os.path.normcase(os.path.abspath(root))
+    full = os.path.normcase(os.path.abspath(path))
+    if not _inside(full, root):
+        return False
+    relative = os.path.relpath(full, root)
+    expected = os.path.normpath(os.path.join(resolved_root or _norm(root), relative))
+    return _norm(path) == expected
+
+
 def too_broad(root):
     """Drive roots, the user profile itself and anything inside system/program folders are refused."""
     r = _norm(root)
@@ -198,7 +220,7 @@ _last_run_ns = 0  # last run id time handed out in this process
 
 def _content_fp(path, size):
     """'size:hash' of 32 KB from the middle of the file: the music, not the tags at its ends."""
-    with open(path, "rb") as fh:
+    with open(path, "rb", opener=shared_read_opener) as fh:
         fh.seek(max(0, size // 2 - 16384))
         return f"{size}:{hashlib.sha1(fh.read(32768)).hexdigest()[:20]}"
 
@@ -295,10 +317,35 @@ def _move_file(src, dst):
         _remove_temp(tmp)
 
 
+@dataclass(frozen=True)
+class LibrarySnapshot:
+    files: frozenset
+    # Inventory equality checks for added/removed/modified paths. Approved content is checked again at quarantine.
+    digests: dict = field(default_factory=dict, compare=False)
+
+
+@dataclass(frozen=True)
+class DuplicateTrack:
+    version: str
+    duration: float
+    digest: bytes | None
+    removable: bool
+
+    def identical(self, other):
+        return self.digest is not None and self.digest == other.digest
+
+
+def compatible_versions(version, duration, other_version, other_duration):
+    return (version != other_version or not duration or not other_duration
+            or abs(duration - other_duration) <= SAME_VERSION_TOLERANCE)
+
+
 class Organizer:
-    def __init__(self, opts, keys=None, progress=None, cancel=None, ask_rename=None, skip=None):
+    def __init__(self, opts, keys=None, progress=None, cancel=None, ask_rename=None, skip=None, *,
+                 reviewed_duplicates=None, keeper_choices=None):
         self.opts = opts
         self.root = os.path.abspath(opts.root)
+        self.resolved_root = _norm(self.root)
         if not os.path.isdir(self.root):
             raise ValueError(t("err.no_folder", root=self.root))
         if too_broad(self.root):
@@ -343,12 +390,20 @@ class Organizer:
         self._start = []
         self._settled = []
         self._start_paths = set()  # normcase paths of the tracks there when the run began
-        self._moved_from = {}  # normcase dst -> src, for tracks this run moved
+        self._moved_from = {}  # normcase dst -> original src, for tracks this run moved
         # left alone: protected folders inside the library (the library itself can't be one) and files the user
         # unticked in the preview list
         self._protected = protectable(self.root, opts.protected)
-        self._skip = {os.path.normcase(p) for p in (skip or [])}
         self._skip_paths = list(skip or [])
+        self._skip = {os.path.normcase(p) for p in self._skip_paths}
+        self._reviewed_duplicates = None if reviewed_duplicates is None else {
+            os.path.normcase(p): os.path.normcase(keep) for p, keep in reviewed_duplicates.items()
+        }
+        self._keeper_choices = {os.path.normcase(p): os.path.normcase(keep) for p, keep in (keeper_choices or {}).items()}
+        self.dup_details = {}
+        self._expected_digests = None
+        self._deferred_pairs = {}
+        self._deferred_members = set()
         self._fresh = set()  # only_new: tracks this run works on besides _entrada (followed when moved)
         # 'Only new tracks' needs one full organize that reached its end (first time, or the first one was cancelled):
         # until then the whole library is sorted
@@ -495,7 +550,8 @@ class Organizer:
     def _track_moves(self, src, dst):
         """Keeps where each track that was new at the start went, so the inventory follows it."""
         k = os.path.normcase(src)
-        self._moved_from[os.path.normcase(dst)] = k
+        self._moved_from[os.path.normcase(dst)] = self._moved_from.pop(k, k)
+        self._follow_deferred(src, dst)
         if self.only_new and (k in self._fresh or self._in_inbox(src)):
             self._fresh.add(os.path.normcase(dst))
         if k in self._pending:
@@ -504,11 +560,7 @@ class Organizer:
 
     def _origin(self, p):
         k = os.path.normcase(p)
-        seen = set()
-        while k in self._moved_from and k not in seen:
-            seen.add(k)
-            k = self._moved_from[k]
-        return k
+        return self._moved_from.get(k, k)
 
     def _identities(self, end=False):
         """(relative path, size) of every track not waiting to be renamed.
@@ -620,7 +672,7 @@ class Organizer:
             dirs[:] = [d for d in dirs if _descend(dp, d, self.root) and not self.left_alone(os.path.join(dp, d))]
             yield dp, dirs, files
 
-    def move(self, src, dst_dir, name=None):
+    def move(self, src, dst_dir, name=None, *, reason=""):
         """Never overwrites and never deletes a file it did not create itself. `name`: new file name, used only
         when free (taken: the file keeps its own name, so nothing gets a ' (1)' just for the rename)."""
         if self.left_alone(dst_dir):  # never into a protected folder: the track stays where it is
@@ -634,7 +686,7 @@ class Organizer:
             dst, i = base + ext, 1
             while os.path.exists(dst):
                 dst, i = f"{base} ({i}){ext}", i + 1
-            self._write_log("mover", src, dst)  # before the move: a crash right after still leaves a record
+            self._write_log("mover", src, dst, reason or ("rename" if os.path.dirname(src) == dst_dir else "genre"))
             _move_file(src, dst)
         except OSError as e:
             if "dst" in locals():
@@ -653,12 +705,7 @@ class Organizer:
         if self.left_alone(qroot):
             self.errors.append(t("err.protected_target", path=path))
             return False
-        if not os.path.isdir(qroot):
-            os.makedirs(qroot, exist_ok=True)
-            _hide(qroot)  # not shown in Explorer / shares that skip hidden folders
-            open(os.path.join(qroot, QUARANTINE_MARK), "w").close()
-        elif not _owns_quarantine(self.root):
-            raise RuntimeError(t("err.quarantine_taken", path=qroot))  # a user folder with that name: never use it
+        _ensure_quarantine(self.root)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         self._write_log("quarentena", path, dst)
         try:
@@ -669,7 +716,7 @@ class Organizer:
             return False
         return True
 
-    def _edit_tags(self, p, genre=None, clean=False):
+    def _edit_tags(self, p, genre=None, clean=False, *, credits=None):
         """Original tags go to the run log first; the edit is made on a copy that must reopen with the same
         length before it replaces the original, so a failed save can never damage the track."""
         snap = snapshot(p)
@@ -678,20 +725,21 @@ class Organizer:
         tmp = f"{p}.ck-{self.run_id}{os.path.splitext(p)[1]}"
         try:
             shutil.copy2(p, tmp)
-            changed = fix_tags(tmp, genre=genre, clean=clean)
+            changed = fix_tags(tmp, genre=genre, clean=clean, **({"credits": credits} if credits else {}))
             check = read_info(tmp)
             # length unknown before (some AIFF without tags report 0) only needs to be readable after
             if check["unreadable"] or not check["duration"] or (before and abs(check["duration"] - before) > 0.5):
                 raise RuntimeError(t("err.tag_check"))
             self._write_log("tags", p, snap, snapshot(tmp))
             os.replace(tmp, p)
-            return changed
         except BaseException:
             if self._log is not None:
                 self._write_log("falhou", p, snap)  # not changed: Undo skips this entry
             raise
         finally:
             _remove_temp(tmp)
+        self._follow_deferred(p, p)
+        return changed
 
     def audio_files(self, base=None, *, include_unticked=False):
         for dp, _, files in self._walk(base):
@@ -798,6 +846,7 @@ class Organizer:
                     self._un7z(seven, a, part)
                 else:
                     raise RuntimeError(t("err.need_7zip"))
+                members = {os.path.relpath(p, part): _file_identity(p) for p in _regular_files(part)}
                 os.rename(part, out)
             except Cancelled:
                 if part_created:
@@ -808,7 +857,7 @@ class Organizer:
                     shutil.rmtree(part, ignore_errors=True)
                 self.errors.append(f"{os.path.basename(a)}: {e}")
                 continue
-            self._write_log("extraido", aid or a, out)
+            self._write_log("extraido", aid or a, out, json.dumps(members, ensure_ascii=True))
             done.add(aid or a)
             _write_json(os.path.join(self.data, "extraidos.json"), sorted(done))
             self.report["archives_extracted"] += 1
@@ -944,47 +993,183 @@ class Organizer:
         """Sorted best first. The same version (e.g. two 'Original Mix') with clearly different lengths is
         a different recording, not a copy: it stays."""
         best, rest = group[0], group[1:]
+        best_version = version_label(best[0], infos[best[0]])
         out = []
         for p, dur in rest:
-            same_version = version_label(p, infos[p]) == version_label(best[0], infos[best[0]])
-            if same_version and dur and best[1] and abs(dur - best[1]) > SAME_VERSION_TOLERANCE:
-                continue
-            out.append(p)
+            if compatible_versions(version_label(p, infos[p]), dur, best_version, best[1]):
+                out.append(p)
         return out
 
-    def find_duplicates(self, infos):
+    def _load_deferred(self):
+        """Read the inbox decisions under the library lock. Changed or missing pairs can be reviewed afresh."""
+        self._deferred_items = read_deferred(self.root)
+        self._deferred_pairs = {}
+        for key, signature in self._deferred_items.items():
+            if not key.startswith("dup|") or not isinstance(signature, list) or len(signature) != 5:
+                continue
+            path, keep = key[4:], signature[2]
+            if not isinstance(keep, str) or not all(_direct_library_path(self.root, p, self.resolved_root)
+                    and not self.left_alone(p, include_unticked=True) for p in (path, keep)):
+                continue
+            try:
+                a, b = os.stat(path), os.stat(keep)
+            except OSError:
+                continue
+            if signature == [a.st_size, a.st_mtime_ns, keep, b.st_size, b.st_mtime_ns]:
+                self._deferred_pairs[os.path.normcase(path)] = os.path.normcase(keep)
+        self._deferred_members = set(self._deferred_pairs) | set(self._deferred_pairs.values())
+
+    def _follow_deferred(self, source, destination):
+        """Keep deferred pairs attached to the same copies when this organizer moves or edits them."""
+        src, dst = os.path.normcase(source), os.path.normcase(destination)
+        if src not in self._deferred_members:
+            return
+        state_path = os.path.join(self.data, DEFERRED_FILE)
+        items = self._deferred_items  # the library lock spans this operation, including every subsequent move
+        st = os.stat(destination)
+        stamp = [st.st_size, st.st_mtime_ns]
+        for path, keep in list(self._deferred_pairs.items()):
+            if src not in (path, keep):
+                continue
+            signature = items.pop("dup|" + path)
+            del self._deferred_pairs[path]
+            if path == src:
+                path = dst
+                signature[:2] = stamp
+            if keep == src:
+                keep = dst
+                signature[2:] = [destination, *stamp]
+            self._deferred_pairs[path] = keep
+            items["dup|" + path] = signature
+        self._deferred_members = set(self._deferred_pairs) | set(self._deferred_pairs.values())
+        _write_json(state_path, items)
+
+    def _file_digest(self, path):
+        try:
+            with open(path, "rb") as f:
+                before = os.fstat(f.fileno())
+                digest = hashlib.sha256()
+                while chunk := f.read(1024 * 1024):
+                    if self.cancel.is_set():
+                        raise Cancelled()
+                    digest.update(chunk)
+                after = os.stat(path)
+                if (os.path.samestat(before, after) and before.st_size == after.st_size
+                        and before.st_mtime_ns == after.st_mtime_ns):
+                    return digest.digest()
+        except OSError:
+            pass
+        return None
+
+    def _duplicate_details(self, infos, *, review=False):
+        """Remember both recordings in every reviewable pair, including versions with different sizes."""
+        self.dup_details = {}
+        groups = defaultdict(set)
+        for p, keep in self.dup_best.items():
+            groups[keep].update((p, keep))
+        for paths in groups.values():
+            sizes = {}
+            for p in paths:
+                try:
+                    sizes[p] = os.path.getsize(p)
+                except OSError:
+                    sizes[p] = None
+            counts = Counter(sizes.values())
+            for p, size in sizes.items():
+                digest = None
+                if size is not None and (review or counts[size] > 1):
+                    digest = self._file_digest(p)
+                self.dup_details[p] = DuplicateTrack(version_label(p, infos[p]), infos[p]["duration"], digest,
+                                                     self._step_scope(p, self.opts.dedupe_all)
+                                                     and os.path.normcase(p) not in self._deferred_members)
+        if review:
+            self.snapshot = LibrarySnapshot(self.snapshot.files,
+                                            {os.path.normcase(p): d.digest for p, d in self.dup_details.items()})
+
+    def find_duplicates(self, infos, *, include_deferred=False):
         """Copies to remove (best kept: see _score). 'Only new tracks': only new copies are removed.
         Also fills self.dup_best (copy removed -> copy kept) for the review list."""
         groups = defaultdict(list)
         for p, info in infos.items():
-            if info["unreadable"]:
-                continue  # damaged tags: its length is unknown (0), it would always lose
+            if info["unreadable"] or os.path.normcase(p) in self._deferred_pairs:
+                continue
             key = track_key(p, self.opts.merge_versions, info)
             if key:
                 groups[key].append((p, info["duration"]))
+        def keep_priority(entry):
+            path, duration = entry
+            origin = self._origin(path)
+            score = self._score(path, duration, infos[path]["title"], infos[path].get("format", ""))
+            return (not self._step_scope(path, self.opts.dedupe_all), os.path.normcase(path) in self._deferred_members,
+                    score, not self._in_inbox(origin), origin)
+
         out = []
+        self.dup_best = {}
         for v in groups.values():
             if len(v) > 1 and any(self._step_scope(p, self.opts.dedupe_all) for p, _ in v):
-                ranked = sorted(v, key=lambda x: self._score(x[0], x[1], infos[x[0]]["title"], infos[x[0]].get("format", "")),
-                                reverse=True)
-                # only new: an old copy is never removed (the rest of the library is left as it is), even if the
-                # new one is better; a full run sorts that out
+                ranked = sorted(v, key=keep_priority, reverse=True)
+                chosen = self._keeper_choices.get(self._origin(ranked[0][0]))
+                if chosen:
+                    for index, (p, _) in enumerate(ranked):
+                        if self._origin(p) == chosen:
+                            ranked.insert(0, ranked.pop(index))
+                            break
+                # Only new tracks: an existing copy outside the removal scope always stays.
                 losers = [p for p in self._losers(ranked, infos)
-                          if self._step_scope(p, self.opts.dedupe_all) and not self.left_alone(p)]
+                          if self._step_scope(p, self.opts.dedupe_all) and os.path.normcase(p) not in self._deferred_members
+                          and not self.left_alone(p, include_unticked=self._origin(p) in (self._reviewed_duplicates or {}))]
                 self.dup_best.update((p, ranked[0][0]) for p in losers)
                 out += losers
+        if include_deferred and self._deferred_pairs:
+            by_key = {os.path.normcase(p): p for p in infos}
+            for path, keep in self._deferred_pairs.items():
+                if path in by_key and keep in by_key:
+                    self.dup_best[by_key[path]] = by_key[keep]
+                    out.append(by_key[path])
         return out
 
     def step_dedupe(self):
         # unticked tracks still count as copies (the list promised 'X goes, Y stays' even if Y was unticked),
         # they are just never the one removed (find_duplicates skips left_alone)
-        kept = [p for p in self._skip_paths if os.path.isfile(p) and is_audio(p)]
+        kept = [p for p in self._skip_paths if not self.left_alone(p, include_unticked=True)
+                and os.path.isfile(p) and is_audio(p)]
+        if self.only_new:
+            self._fresh.update(os.path.normcase(p) for p in kept if self.is_new(p))
         infos = self._read_all(list(self.audio_files()) + kept, "dedupe_scan")
         losers = [p for p in self.find_duplicates(infos) if os.path.exists(p)]
+        if self._reviewed_duplicates is None:
+            self._duplicate_details(infos)
+            identical = [p for p in losers if self.dup_details[p].identical(self.dup_details[self.dup_best[p]])]
+            if len(identical) < len(losers):
+                self.report["dups_review"] += len(losers) - len(identical)
+            losers = identical
+        else:
+            # Moves, renames and newly extracted tracks can change the match after Preview.
+            approved = []
+            pending = set(self._reviewed_duplicates) | {self._origin(p) for p in losers}
+            for p in losers:
+                original, best = self._origin(p), self.dup_best[p]
+                if self._reviewed_duplicates.get(original) == self._origin(best) and os.path.isfile(best):
+                    approved.append(p)
+                    pending.discard(original)
+            if pending:
+                self.report["dups_review"] += len(pending)
+            losers = approved
         for i, p in enumerate(losers, 1):
             self._tick("dedupe_remove", i, len(losers), os.path.basename(p))
-            if self.trash(p):
+            keep = self.dup_best[p]
+            if not os.path.isfile(keep):
+                self.report["dups_review"] += 1
+            elif self._expected_digests is not None and not all(
+                    self._matches_reviewed_file(path) for path in (p, keep)):
+                self.report["dups_review"] += 1
+                self.errors.append(t("plan.stale") + " " + p)
+            elif self.trash(p):
                 self.report["dups_trashed"] += 1
+
+    def _matches_reviewed_file(self, path):
+        expected = self._expected_digests.get(self._origin(path))
+        return expected is not None and expected == self._file_digest(path)
 
     # ---------- online ----------
 
@@ -1008,7 +1193,7 @@ class Organizer:
                 g, src = look.genre(*terms) if terms else (None, None)
                 if not g:
                     continue
-                dst = self.move(p, self.target_dir(g))
+                dst = self.move(p, self.target_dir(g), reason="online")
                 if not dst:
                     continue
                 self._write_log("genero", dst, g, src, okey, self.overrides.get(okey, ""))
@@ -1078,7 +1263,7 @@ class Organizer:
                 unknown = os.path.basename(here) == self.names["bpm_unknown"]
                 if unknown and not b:
                     continue  # still unknown
-                if self.move(p, os.path.join(os.path.dirname(here) if unknown else here, bpm_mod.bucket(b, self.names))):
+                if self.move(p, os.path.join(os.path.dirname(here) if unknown else here, bpm_mod.bucket(b, self.names)), reason="bpm"):
                     self.report["bpm_sorted"] += 1
         finally:
             ex.shutdown(wait=True, cancel_futures=True)  # on cancel: don't measure the rest
@@ -1204,13 +1389,14 @@ class Organizer:
                     before and abs(check["duration"] - before) > 0.5):
                 raise RuntimeError(t("err.tag_check"))
             os.replace(tmp, p)
-            return True
         except BaseException:
             for _, a, b in rows:
                 self._write_log("falhou", a, b)  # not changed: Undo skips these entries
             raise
         finally:
             _remove_temp(tmp)
+        self._follow_deferred(p, p)
+        return True
 
     def repeated_covers(self):
         """For 'Repeated covers': read-only look at every embedded image."""
@@ -1276,12 +1462,24 @@ class Organizer:
 
     # ---------- run / preview ----------
 
-    def run(self, expect=None):
+    def run(self, expect=None, *, duplicates_only=False):
         """expect: library_snapshot() of the Preview whose list the user reviewed; checked under the lock, so a track
         arriving after the review is never organized on the strength of a list it was not on."""
         with library_lock(self.root):
+            if duplicates_only and (not self.opts.dedupe or expect is None or self._reviewed_duplicates is None):
+                raise ValueError(t("plan.stale"))
             if expect is not None and self.library_snapshot() != expect:
                 raise ValueError(t("plan.stale"))
+            self._expected_digests = expect.digests if expect is not None and self._reviewed_duplicates is not None else None
+            self._load_deferred()
+            if duplicates_only:
+                self._fresh = self._new_tracks()
+                try:
+                    self.step_dedupe()
+                finally:
+                    if self._log:
+                        self._log.close()
+                return self.report, self.errors
             _purge_quarantine(self.root, QUARANTINE_DAYS)  # here, not in __init__: Preview must not change anything
             prune_logs(self.data)
             return self._run()
@@ -1332,7 +1530,7 @@ class Organizer:
                 out.add((os.path.normcase(p), st.st_size, st.st_mtime_ns))
             except OSError:
                 pass
-        return frozenset(out)
+        return LibrarySnapshot(frozenset(out))
 
     def _new_tracks(self):
         """'Only new tracks': the never-seen tracks outside _entrada (before the first run: none)."""
@@ -1342,7 +1540,7 @@ class Organizer:
         """Counts for the summary, and self.plan: one row per track that will change, for the review list
         ("move": new path, "rename_ask": new name if you say yes, "dup": the copy that stays, "tags": new genre)."""
         rep = Counter()
-        self.plan, self.dup_best = [], {}  # a second preview() on the same object starts clean
+        self.plan, self.dup_best, self.dup_details = [], {}, {}  # repeat previews start clean
         if self.opts.extract:
             rep["archives_pending"] = len(self.pending_archives())
         self._fresh = self._new_tracks()
@@ -1391,7 +1589,9 @@ class Organizer:
         rep["site_names_ask"] = sum(1 for k, _, _ in self.plan if k == "site_name")
         rep["rename_ask"] = sum(1 for k, _, _ in self.plan if k == "rename_ask")
         if self.opts.dedupe:
+            self._load_deferred()
             dups = self.find_duplicates(infos)
+            self._duplicate_details(infos, review=True)
             rep["dups_pending"] = len(dups)
             self.plan += [("dup", p, self.dup_best[p]) for p in dups]
         if self.opts.bpm_folders:
@@ -1417,6 +1617,31 @@ class Organizer:
 
 
 # ---------- quarantine / logs ----------
+
+def _file_identity(path):
+    st = os.stat(path)
+    return [st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns]
+
+
+def _regular_files(root):
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(folder, d))
+                   and not os.path.isjunction(os.path.join(folder, d))]
+        for name in names:
+            path = os.path.join(folder, name)
+            if not os.path.islink(path) and os.path.isfile(path):
+                yield path
+
+
+def _ensure_quarantine(root):
+    qroot = os.path.join(root, QUARANTINE)
+    if not os.path.lexists(qroot):
+        os.mkdir(qroot)
+        _hide(qroot)
+        open(os.path.join(qroot, QUARANTINE_MARK), "w").close()
+    elif not os.path.isdir(qroot) or not _owns_quarantine(root):
+        raise RuntimeError(t("err.quarantine_taken", path=qroot))
+
 
 def purge_quarantine(root, older_than_days=None):
     """Quarantined runs -> Recycle Bin. Takes the library lock (never while an Undo is running)."""
@@ -1490,11 +1715,19 @@ def _purge_quarantine(root, older_than_days=None):
 
 def prune_logs(data_dir):
     d = os.path.join(data_dir, "execucoes")
-    logs = [f for f in os.listdir(d) if f.endswith(".csv")]
+    logs = [f for f in os.listdir(d) if f.endswith(".csv") and not f.endswith(".returned.csv")]
     for group in ((f for f in logs if not f.endswith(".desfeito.csv")),
                   (f for f in logs if f.endswith(".desfeito.csv"))):
         for f in sorted(group, key=lambda f: _log_time_key(d, f))[:-KEEP_LOGS]:
-            for extra in ("", ".feito"):
+            path = os.path.join(d, f)
+            if not f.endswith(".desfeito.csv"):
+                if os.path.isfile(path + ".restore.json") or any(
+                        len(r) >= 3 and r[0] == "quarentena" and is_audio(r[1]) and os.path.isfile(r[2])
+                        for r in _read_log_rows(path)):
+                    # Keep individual recoveries after the full-undo retention window closes.
+                    open(path + ".historico", "a").close()
+                    continue
+            for extra in ("", ".feito", ".historico", ".returned", ".restore.json"):
                 try:
                     os.remove(os.path.join(d, f + extra))
                 except OSError:
@@ -1588,6 +1821,33 @@ def _move_back(src, dst, errors, retry):
         return False
 
 
+def _undo_extraction(root, run_id, folder, row, returned):
+    """Only put aside known members. A new file can since have appeared at any path in this folder."""
+    if not os.path.isdir(folder):
+        return
+    inbox = os.path.join(root, INBOX)
+    if not _direct_library_path(inbox, folder) or not _direct_library_path(root, folder):
+        raise ValueError(t("err.undo_conflict", path=folder))
+    # Older runs had no manifest. Files returned by this Undo are independently proven members.
+    members = json.loads(row[3]) if len(row) > 3 else {}
+    members = {os.path.normcase(os.path.join(folder, rel)): identity for rel, identity in members.items()}
+    members.update((p, identity) for p, identity in returned.items()
+                   if (p in members if len(row) > 3 else _inside(p, os.path.normcase(folder))))
+    base = os.path.join(root, QUARANTINE, run_id, "_extracoes_desfeitas", os.path.relpath(folder, inbox))
+    for path in _regular_files(folder):
+        if members.get(os.path.normcase(path)) != _file_identity(path):
+            continue
+        _ensure_quarantine(root)
+        dest = os.path.join(base, os.path.relpath(path, folder))
+        if not _direct_library_path(root, dest):
+            raise ValueError(t("err.undo_conflict", path=dest))
+        if os.path.lexists(dest):
+            raise FileExistsError(t("err.undo_conflict", path=dest))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.rename(path, dest)
+    _remove_empty(folder)
+
+
 def _log_time_key(runs_dir, f):
     try:
         st = os.stat(os.path.join(runs_dir, f))
@@ -1600,7 +1860,8 @@ def _log_time_key(runs_dir, f):
 def _pending_logs(runs_dir):
     """Run logs not undone yet, oldest first. By creation time, not by name: run ids carry the local time, which
     jumps back an hour when summer time ends (the name breaks ties)."""
-    return sorted((f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv")),
+    return sorted((f for f in os.listdir(runs_dir) if f.endswith(".csv") and not f.endswith(".desfeito.csv")
+                   and not os.path.exists(os.path.join(runs_dir, f) + ".historico")),
                   key=lambda f: _log_time_key(runs_dir, f))
 
 
@@ -1623,15 +1884,197 @@ def list_runs(root):
     for f in reversed(_pending_logs(d)):
         kinds = Counter()
         try:
-            rows = _read_log_rows(os.path.join(d, f))
+            log = os.path.join(d, f)
+            rows = _read_log_rows(log)
+            done = _checkpointed_rows(log)
             failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
-            for r in rows:
-                if r[0] != "falhou" and len(r) > 2 and (r[1], r[2]) not in failed:
+            for index, r in enumerate(rows):
+                if index not in done and r[0] != "falhou" and len(r) > 2 and (r[1], r[2]) not in failed:
                     kinds[r[0]] += 1
         except OSError:
             continue
-        out.append((f[:-4], kinds))
+        if kinds or not done:  # legacy failed-only logs can still be inspected
+            out.append((f[:-4], kinds))
     return out
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    run: str
+    row: int
+    source: str
+    destination: str
+    reason: str
+    status: str
+    restorable: bool
+    aliases: tuple = ()
+
+
+def _checkpointed_rows(log_path):
+    try:
+        with open(log_path + ".feito", encoding="utf-8") as f:
+            return {int(i) for i in f.read().split() if i.isdecimal()}
+    except FileNotFoundError:
+        return set()
+
+
+def _done_rows(log_path):
+    """Reconcile an interrupted restore while holding the library lock."""
+    done = _checkpointed_rows(log_path)
+    intent = log_path + ".restore.json"
+    pending = _read_json(intent, None)
+    if not isinstance(pending, list) or len(pending) != 4:
+        return done
+    idx, source, quarantine, identity = pending
+    if not (isinstance(idx, int) and isinstance(source, str) and isinstance(quarantine, str)):
+        return done
+    if idx not in done and not os.path.lexists(quarantine):
+        try:
+            restored = _file_identity(source) == identity
+        except FileNotFoundError:
+            restored = False
+        except OSError:
+            return done  # an inaccessible source can be checked again on the next visit
+        if restored:
+            with open(log_path + ".feito", "a", encoding="utf-8") as f:
+                f.write(f"{idx}\n")
+                f.flush()
+                os.fsync(f.fileno())
+            done.add(idx)
+        # An externally moved/replaced file has no provable destination. Its row shows
+        # "unavailable" while other tracks in this and other runs remain recoverable.
+    os.remove(intent)
+    return done
+
+
+def _fully_checkpointed(rows, done):
+    if not done:
+        return False
+    failed = {(r[1], r[2]) for r in rows if len(r) >= 3 and r[0] == "falhou"}
+    return all(i in done or len(r) < 3 or r[0] == "falhou" or (r[1], r[2]) in failed
+               for i, r in enumerate(rows))
+
+
+def _archive_undo_log(path):
+    os.replace(path, path[:-4] + ".desfeito.csv")
+    for extra in (".feito", ".historico", ".returned"):
+        try:
+            os.remove(path + extra)
+        except FileNotFoundError:
+            pass
+
+
+def _recover_missing_logs(root, directory):
+    """Older versions dropped Undo logs while the actual quarantined files still existed."""
+    qroot = os.path.join(root, QUARANTINE)
+    if not os.path.isdir(qroot) or not _owns_quarantine(root):
+        return
+    for run in os.listdir(qroot):
+        base = os.path.join(qroot, run)
+        log = os.path.join(directory, run + ".csv")
+        if (not RUN_DIR.fullmatch(run) or not _direct_library_path(root, base) or not os.path.isdir(base)
+                or os.path.exists(log) or os.path.exists(log[:-4] + ".desfeito.csv")):
+            continue
+        paths = []
+        for path in _regular_files(base):
+            rel = os.path.relpath(path, base)
+            if (is_audio(path) and os.path.normcase(rel.split(os.sep)[0]) != "_extracoes_desfeitas"
+                    and _direct_library_path(root, path)):
+                paths.append(("quarentena", os.path.join(root, rel), path))
+        if paths:
+            open(log + ".historico", "a").close()  # never offer these synthetic rows as a full run
+            with open(log + ".tmp", "w", newline="", encoding="utf-8", errors="surrogatepass") as f:
+                csv.writer(f).writerows(sorted(paths))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(log + ".tmp", log)
+
+
+def track_history(opts):
+    org = Organizer(opts)
+    with library_lock(org.root):
+        directory = os.path.join(org.data, "execucoes")
+        _recover_missing_logs(org.root, directory)
+        entries, locations, names = [], {}, []
+        logs = (f for f in os.listdir(directory) if f.endswith(".csv"))
+        for name in sorted(logs, key=lambda f: _log_time_key(directory, f)):
+            run = name.split(".")[0]
+            if not RUN_DIR.fullmatch(run) or name not in (run + ".csv", run + ".desfeito.csv"):
+                continue
+            archived = name.endswith(".desfeito.csv")
+            log = os.path.join(directory, name)
+            done = set() if archived else _done_rows(log)
+            rows = _read_log_rows(log)
+            if not archived and _fully_checkpointed(rows, done):
+                _archive_undo_log(log)
+                archived = True
+            failed = {(r[1], r[2]) for r in rows if len(r) >= 3 and r[0] == "falhou"}
+            reverse_moves = []
+            for i, row in enumerate(rows):
+                if len(row) < 3 or not is_audio(row[1]) or row[0] not in ("tags", "mover", "quarentena", "capa", "capa_fora", "genero"):
+                    continue
+                kind, a, b = row[:3]
+                reason = kind
+                if kind == "mover" and len(row) > 3 and row[3] in ("genre", "online", "bpm", "rename"):
+                    reason = row[3]
+                status = "failed" if (a, b) in failed else "undone" if archived or i in done else "done"
+                restore = kind == "quarentena" and status == "done" and os.path.isfile(b)
+                if kind == "quarentena" and status == "done" and not restore:
+                    status = "unavailable"
+                destination = b if kind in ("mover", "quarentena") else a
+                src, dst = os.path.normcase(a), os.path.normcase(destination)
+                group = locations.get(src)
+                if group is None:
+                    group = locations[src] = len(names)
+                    names.append(set())
+                names[group].add(os.path.basename(a))
+                if src != dst and status != "failed":
+                    # Consume the source: a later import can legitimately reuse that exact path.
+                    del locations[src]
+                    locations[dst] = group
+                    names[group].add(os.path.basename(destination))
+                    if status == "undone":
+                        reverse_moves.append((src, dst, group))
+                entries.append((HistoryEntry(run, i, a, destination, reason, status, restore), group))
+            for src, dst, group in reversed(reverse_moves):
+                if locations.get(dst) == group:
+                    del locations[dst]
+                    locations[src] = group
+        aliases = [tuple(sorted(v)) for v in names]
+        return [replace(entry, aliases=aliases[group]) for entry, group in reversed(entries)]
+
+
+def restore_track(opts, entry):
+    org = Organizer(opts)
+    with library_lock(org.root):
+        if not RUN_DIR.fullmatch(entry.run):
+            raise ValueError(t("dj.restore_changed"))
+        log = os.path.join(org.data, "execucoes", entry.run + ".csv")
+        rows = _read_log_rows(log)
+        if entry.row in _done_rows(log) or not 0 <= entry.row < len(rows):
+            raise ValueError(t("dj.restore_changed"))
+        a, b = entry.source, entry.destination
+        # The same library can be re-opened through a different drive alias or junction.
+        # The recorded paths branch at its root, into the original folder and _quarentena.
+        recorded_root = os.path.commonpath((a, b))
+        relative = os.path.relpath(a, recorded_root)
+        source = os.path.join(org.root, relative)
+        destination = os.path.join(org.root, QUARANTINE, entry.run, relative)
+        if (rows[entry.row][:3] != ["quarentena", a, b] or ["falhou", a, b] in rows
+                or not is_audio(a) or _norm(recorded_root) != _norm(org.root)
+                or not _direct_library_path(recorded_root, a) or not _direct_library_path(recorded_root, b)
+                or os.path.normcase(b) != os.path.normcase(os.path.join(recorded_root, QUARANTINE, entry.run, relative))
+                or org.left_alone(source) or org.left_alone(destination) or not _owns_quarantine(org.root)):
+            raise ValueError(t("dj.restore_changed"))
+        if os.path.lexists(a):
+            raise ValueError(t("err.undo_conflict", path=a))
+        os.makedirs(os.path.dirname(a), exist_ok=True)
+        _write_json(log + ".restore.json", [entry.row, a, b, _file_identity(b)])
+        os.rename(b, a)
+        done = _done_rows(log)
+        if _fully_checkpointed(rows, done):
+            _archive_undo_log(log)
+    return a
 
 
 def undo_until(root, run_id, progress=None, cancel=None, protected=(), newest_seen=None):
@@ -1649,12 +2092,27 @@ def undo_until(root, run_id, progress=None, cancel=None, protected=(), newest_se
             if run_id not in pending:
                 return rep, errors
             newest = pending[0]
-            r, e = _undo_last(root, progress, cancel, protected)
+            r, e = _undo_last(root, progress, cancel, protected, expected=newest)
             rep.update(r)
             errors += e
             if newest in [x for x, _ in list_runs(root)]:  # still there: something must be retried first
                 errors.append(t("err.undo_stuck"))
                 return rep, errors
+
+
+def track_problems(info):
+    if info["unreadable"]:
+        return ["report_unreadable"]
+    problems = []
+    if not (info["artist"] and info["title"]):
+        problems.append("report_no_artist_title")
+    if not normalize_genre(info["genre"]):
+        problems.append("report_no_genre")
+    if info["format"] == ".mp3" and 0 < info.get("bitrate", 0) < 320000:
+        problems.append("report_low_bitrate")
+    if 0 < info["duration"] < 60:
+        problems.append("report_short")
+    return problems
 
 
 def library_report(organizer, csv_path):
@@ -1664,19 +2122,7 @@ def library_report(organizer, csv_path):
     infos = organizer._read_all(files, "report")
     rep, rows = Counter({"tracks": len(files)}), []
     for p, info in infos.items():
-        problems = []
-        if info["unreadable"]:
-            problems.append("report_unreadable")
-        else:
-            if not (info["artist"] and info["title"]):
-                problems.append("report_no_artist_title")
-            if not info["genre"]:
-                problems.append("report_no_genre")
-            if info["format"] == ".mp3" and 0 < info.get("bitrate", 0) < 320000:
-                problems.append("report_low_bitrate")
-            if 0 < info["duration"] < 60:
-                problems.append("report_short")
-        for k in problems:
+        for k in track_problems(info):
             rep[k] += 1
             rows.append((t("rep." + k), p))
     with open(csv_path, "w", encoding="utf-8-sig", newline="") as fh:  # BOM: Excel opens accents right
@@ -1693,7 +2139,7 @@ def undo_last(root, progress=None, cancel=None):
         return _undo_last(root, progress, cancel)
 
 
-def _undo_last(root, progress, cancel, protected=()):
+def _undo_last(root, progress, cancel, protected=(), *, expected=None):
     """protected: folders the user protected since that run. Their entries are not undone; the run stays pending
     (it can be undone once the folder is no longer protected)."""
     shielded = protectable(root, protected)
@@ -1703,17 +2149,24 @@ def _undo_last(root, progress, cancel, protected=()):
     data = data_dir_for(root)
     runs_dir = os.path.join(data, "execucoes")
     runs = _pending_logs(runs_dir)
-    if not runs:
+    for filename in reversed(runs):
+        run_id = filename[:-4]
+        path = os.path.join(runs_dir, filename)
+        rows = _read_log_rows(path)
+        done = _done_rows(path)
+        if not _fully_checkpointed(rows, done):
+            break
+        _archive_undo_log(path)
+        if run_id == expected:
+            return Counter(), []  # this was the selected run; never undo an older one on its behalf
+    else:
         return Counter({"undo_nothing": 1}), []
-    path = os.path.join(runs_dir, runs[-1])
-    run_id = runs[-1][:-4]
-    rows = _read_log_rows(path)
     done_path = path + ".feito"  # entries already undone by an earlier (partial) attempt
-    try:
-        with open(done_path, encoding="utf-8") as fh:
-            done = {int(x) for x in fh.read().split()}
-    except FileNotFoundError:
-        done = set()
+    review = None
+    retry_deferred_save = False
+    if os.path.isfile(os.path.join(data, DEFERRED_FILE)):
+        review = Organizer(Options(root=root, protected=protected))
+        review._load_deferred()
     rep, errors, retry = Counter(), [], [False]
     blocked_paths = set()
     failed = {(r[1], r[2]) for r in rows if r[0] == "falhou" and len(r) > 2}
@@ -1725,6 +2178,17 @@ def _undo_last(root, progress, cancel, protected=()):
     overrides = overrides if isinstance(overrides, dict) else {}
     extracted_value = _read_json(os.path.join(data, "extraidos.json"), [])
     extracted = set(extracted_value) if isinstance(extracted_value, list) else set()
+    extraction_dirs = {os.path.normcase(r[2]) for _, r in todo if r[0] == "extraido"}
+    returned_path = path + ".returned"
+    returned = {}
+    if extraction_dirs and os.path.exists(returned_path):
+        with open(returned_path, encoding="utf-8") as receipts:
+            for line in receipts:
+                try:
+                    p, identity = json.loads(line)
+                    returned[p] = identity
+                except ValueError:  # an incomplete final write cannot establish ownership
+                    continue
     try:  # cancelled halfway: the entries already undone are kept on disk too
         with open(done_path, "a", encoding="utf-8") as done_fh:
             for n, (i, r) in enumerate(reversed(todo), 1):  # newest first: replays the chain backwards
@@ -1797,19 +2261,13 @@ def _undo_last(root, progress, cancel, protected=()):
                             overrides.pop(okey, None)
                     ok = True
                 elif kind == "extraido":
-                    if os.path.isdir(b):  # what is left of the extraction (the tracks were moved back into it)
-                        base = os.path.join(root, QUARANTINE, run_id, "_extracoes_desfeitas", os.path.basename(b))
-                        dst, k = base, 2
-                        while os.path.exists(dst):  # two packs both called CD1.zip
-                            dst, k = f"{base} ({k})", k + 1
-                        os.makedirs(os.path.dirname(dst), exist_ok=True)
-                        try:
-                            os.rename(b, dst)
-                        except OSError as e:
-                            errors.append(f"{b}: {e}")
-                            retry[0] = True
-                            blocked_paths.update(touched)
-                            continue
+                    try:
+                        _undo_extraction(root, run_id, b, r, returned)
+                    except (OSError, ValueError, RuntimeError) as e:
+                        errors.append(f"{b}: {e}")
+                        retry[0] = True
+                        blocked_paths.update(touched)
+                        continue
                     extracted.discard(a)
                     rep["undo_extract"] += 1
                     ok = True
@@ -1820,6 +2278,23 @@ def _undo_last(root, progress, cancel, protected=()):
                 if not ok:
                     blocked_paths.update(touched)
                 else:
+                    if review is not None and kind in ("mover", "tags", "capa", "capa_fora"):
+                        try:
+                            review._follow_deferred(b if kind == "mover" else a, a)
+                        except OSError as e:
+                            # The file has already been restored. Checkpoint it even if saving the preference fails.
+                            retry_deferred_save = True
+                            errors.append(f"{DEFERRED_FILE}: {e}")
+                    key = os.path.normcase(a)
+                    returned_to_pack = kind in ("quarentena", "mover") and any(
+                        _inside(key, folder) for folder in extraction_dirs)
+                    if returned_to_pack or (key in returned and kind in ("tags", "capa", "capa_fora")):
+                        # Undoing tags can change the file ID. Keep proof for an interrupted retry too.
+                        returned[key] = _file_identity(a)
+                        with open(returned_path, "a", encoding="utf-8") as receipt:
+                            receipt.write(json.dumps([key, returned[key]], ensure_ascii=True) + "\n")
+                            receipt.flush()
+                            os.fsync(receipt.fileno())
                     if kind == "genero":
                         _write_json(overrides_path, overrides)  # saved before the entry counts as done
                     elif kind == "extraido":
@@ -1827,17 +2302,18 @@ def _undo_last(root, progress, cancel, protected=()):
                     done_fh.write(f"{i}\n")
                     done_fh.flush()
     finally:
+        if retry_deferred_save:
+            try:
+                _write_json(os.path.join(data, DEFERRED_FILE), review._deferred_items)
+            except OSError as e:
+                errors.append(f"{DEFERRED_FILE}: {e}")
         _write_json(overrides_path, overrides)
         _write_json(os.path.join(data, "extraidos.json"), sorted(extracted))
     legacy = sum(1 for r in rows if r[0] == "reciclagem")  # runs before the quarantine existed
     if legacy:
         rep["undo_in_trash"] = legacy
     if not retry[0]:  # conflicts, missing files and files in use keep the run pending for another attempt
-        os.replace(path, path[:-4] + ".desfeito.csv")
-        try:
-            os.remove(done_path)
-        except OSError:
-            pass
+        _archive_undo_log(path)
         qroot = os.path.join(root, QUARANTINE)
         _remove_empty(qroot)
         if os.path.isdir(qroot) and os.listdir(qroot) == [QUARANTINE_MARK]:

@@ -16,7 +16,7 @@ licenses and attributions are listed in `Qt-codigo-de-terceiros.txt`. The exact 
 |---|---|---|---|
 | mutagen | 1.48.1 | GPL-2.0-or-later (`mutagen-GPL-2.0-or-later.txt`) | https://github.com/quodlibet/mutagen |
 | PySide6 / Shiboken6 (Qt for Python) | 6.12.0 | LGPL-3.0 (`LGPL-3.0.txt` + `LICENSE` GPL-3.0) | https://code.qt.io/cgit/pyside/pyside-setup.git/ |
-| Qt 6 (Core, Gui, Widgets, Svg) | 6.12.0 | LGPL-3.0 (`LGPL-3.0.txt`) | https://download.qt.io/official_releases/qt/ |
+| Qt 6 (Core, Gui, Widgets, Svg, Network, Multimedia) | 6.12.0 | LGPL-3.0 (`LGPL-3.0.txt`) | https://download.qt.io/official_releases/qt/ |
 | Send2Trash | 2.2.0 | BSD-3-Clause (`Send2Trash-BSD-3-Clause.txt`) | https://github.com/arsenetar/send2trash |
 | numpy (com/with OpenBLAS) | 2.4.4 | BSD-3-Clause e outras / and others (`numpy-LICENSE.txt`) | https://github.com/numpy/numpy |
 | soundfile | 0.14.0 | BSD-3-Clause (`soundfile-BSD-3-Clause.txt`) | https://github.com/bastibe/python-soundfile |
