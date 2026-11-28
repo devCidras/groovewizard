@@ -31,7 +31,7 @@ from .i18n import t
 from .capas import SiteCovers, repeated
 from .online import Deezer, Discogs, Lookup
 from .regras import FAMILY_OF, FOLDER_NAMES, NO_GENRE, OTHER
-from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, clean_sites, fix_tags, genre_from_folder, is_audio,
+from .tags import (JUNK_TAG_SPAM, LIST_SEP, LOSSLESS, canonical_genre_tag, clean_sites, fix_tags, genre_from_folder, is_audio,
                    normalize_genre, pack_file_name, raw_genre, read_info, remove_cover, restore, search_terms, clean_file_name,
                    set_cover, snapshot, snapshot_matches, track_key, version_label, cover_digest, pictures,
                    picture_records, put_back_cover, shared_read_opener)
@@ -1445,6 +1445,9 @@ class Organizer:
     def _genre_decision(self, p, raw=None):
         """-> (new genre or None to leave it, report key)."""
         raw = raw_genre(p) if raw is None else raw
+        canonical = canonical_genre_tag(raw)
+        if canonical is not None and canonical != raw:
+            return canonical, "genre_tag_fixed"
         top = os.path.relpath(p, self.root).split(os.sep)[0]
         if top in (self.names[NO_GENRE], self.names[OTHER]):
             if JUNK_TAG_SPAM.search(raw):
@@ -1457,7 +1460,7 @@ class Organizer:
             return None, None  # not inside a genre folder
         # keep a more specific tag that maps to this folder (e.g. "Afro House" inside House)
         if normalize_genre(raw) != here or LIST_SEP.search(raw) or JUNK_TAG_SPAM.search(raw):
-            return here, "genre_tag_fixed"
+            return canonical_genre_tag(here) or here, "genre_tag_fixed"
         return None, None
 
     # ---------- run / preview ----------

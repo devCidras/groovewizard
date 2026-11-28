@@ -23,7 +23,7 @@ from mutagen.id3 import TALB, TCON, TIT2, TPE1  # noqa: E402
 from mutagen.wave import WAVE  # noqa: E402
 
 import organizador.pipeline as pl  # noqa: E402
-from organizador.tags import genre_of, normalize_genre, raw_genre, strip_sites, title_key  # noqa: E402
+from organizador.tags import canonical_genre_tag, genre_of, normalize_genre, raw_genre, strip_sites, title_key  # noqa: E402
 
 trashed = []
 pl.send2trash = lambda p: (trashed.append(p), shutil.rmtree(p) if os.path.isdir(p) else os.remove(p))
@@ -49,6 +49,18 @@ def test_rules():
     assert normalize_genre("https://electronicfresh.com") is None
     assert normalize_genre("Electronic") is None
     assert normalize_genre("Tech House, Deep House") == "Tech House"
+    assert normalize_genre("UK GARAGE") == "Uk Garage"
+    assert canonical_genre_tag("Hardgroove | Techno/HardGroove") == "Hard Groove"
+    assert canonical_genre_tag("Techno (Raw / Deep / Hypnotic)") == "Techno (Raw - Deep - Hypnotic)"
+    assert canonical_genre_tag("TECHNO HOUSE") == "Techno House"
+    assert canonical_genre_tag("#deep #industrial #techno") == "Techno"
+    assert canonical_genre_tag("Электронная Музыка Техно-Хаус") == "Techno House"
+    assert canonical_genre_tag("Электронная Музыка") is None
+    assert normalize_genre("Танцевальная музыка") is None
+    assert canonical_genre_tag("Techno-Schranz | Hard Techno-Schranz") == "Schranz"
+    assert normalize_genre("Techno-Schranz") == "Hard Techno"
+    assert canonical_genre_tag("Techno ((Raw / Deep / Hypnotic)") == "Techno (Raw - Deep - Hypnotic)"
+    assert canonical_genre_tag("Hard Techno | Schranz") is None
     assert strip_sites("Rockin' (Extended Mix) - www.djsoundtop.com") == "Rockin' (Extended Mix)"
     assert strip_sites("djsoundtop.com") == ""
     assert strip_sites("Crazy (Extended Mix) [4DJsonline.com]") == "Crazy (Extended Mix)"
@@ -1880,9 +1892,39 @@ def test_dj_tools():
     check_duplicate_review_fixes(TMP, make)
 
 
+def test_genre_spelling_preview_and_undo():
+    root = os.path.join(TMP, "genre-spelling")
+    hard_groove = make(os.path.join(root, "Techno", "Hard Groove", "Groove.wav"), genre="Hardgroove")
+    peak_time = make(os.path.join(root, "Techno", "Techno (Peak Time - Driving)", "Peak.wav"),
+                     genre="Techno (Peak Time / Driving)")
+    uk_garage = make(os.path.join(root, "Bass & Breaks", "Uk Garage", "Garage.wav"), genre="Uk Garage")
+    afro = make(os.path.join(root, "House", "House", "Afro.wav"), genre="Afro House")
+    schranz = make(os.path.join(root, "Techno", "Hard Techno", "Schranz.wav"), genre="Schranz")
+    schranz_variant = make(os.path.join(root, "Techno", "Hard Techno", "Variant.wav"), genre="Hard Techno-Schranz")
+    opts = pl.Options(root=root, extract=False, dedupe=False, online=False, bpm_folders=False, clean_sites=False)
+    expected = {("tags", hard_groove, "Hard Groove"), ("tags", peak_time, "Techno (Peak Time - Driving)"),
+                ("tags", uk_garage, "UK Garage"), ("tags", schranz_variant, "Schranz")}
+    org = pl.Organizer(opts)
+    assert org.preview()["tags_pending"] == len(expected)
+    assert set(org.plan) == expected
+    report, errors = org.run(expect=org.snapshot)
+    assert not errors and report["genre_tag_fixed"] == len(expected)
+    for _, path, genre in expected:
+        assert raw_genre(path) == genre
+    assert raw_genre(afro) == "Afro House" and raw_genre(schranz) == "Schranz"
+    assert not pl.Organizer(opts).preview()["tags_pending"]
+    _, errors = pl.undo_last(root)
+    assert not errors
+    assert raw_genre(hard_groove) == "Hardgroove"
+    assert raw_genre(peak_time) == "Techno (Peak Time / Driving)"
+    assert raw_genre(uk_garage) == "Uk Garage"
+    assert raw_genre(schranz_variant) == "Hard Techno-Schranz"
+
+
 if __name__ == "__main__":
     try:
         test_rules()
+        test_genre_spelling_preview_and_undo()
         test_guards()
         test_versions_option()
         test_update_versions()

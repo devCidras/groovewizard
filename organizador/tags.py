@@ -16,7 +16,7 @@ from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4
 from mutagen.wave import WAVE
 
-from .regras import ALIAS, FOLDER_RULES
+from .regras import ALIAS, FAMILIES, FOLDER_RULES, GENRE_TAG_SPELLINGS
 
 AUDIO = {".mp3", ".flac", ".aiff", ".aif", ".wav", ".m4a"}
 LOSSLESS = {".flac", ".wav", ".aiff", ".aif"}
@@ -160,6 +160,22 @@ def raw_genre(path):
     return ""
 
 
+def _genre_tag_key(value):
+    value = unicodedata.normalize("NFKC", value).casefold()
+    return re.sub(r"[\s/\u200b\ufeff\u2010-\u2015-]+", "", value)
+
+
+_GENRE_TAGS = {_genre_tag_key(genre): genre for genres in FAMILIES.values() for genre in genres}
+_GENRE_TAGS.update({_genre_tag_key(spelling): genre for genre, variants in GENRE_TAG_SPELLINGS.items()
+                    for spelling in (genre, *variants)})
+
+
+def canonical_genre_tag(raw):
+    """Return the preferred spelling if all provided values name the same recognized style."""
+    genres = {_GENRE_TAGS.get(_genre_tag_key(value)) for value in LIST_SEP.split(raw)}
+    return next(iter(genres)) if len(genres) == 1 else None
+
+
 def normalize_genre(raw):
     """'house; tech house' -> 'House'; site spam / generic -> None. Result is a folder name."""
     if not raw or not raw.strip():
@@ -168,6 +184,7 @@ def normalize_genre(raw):
     if SPAM.search(first):
         return None
     first = re.sub(r"^\(\d+\)", "", first).strip()  # ID3v1 "(13)Pop"
+    first = canonical_genre_tag(first) or first
     first = first.replace("/", "-").replace("\\", "-")  # Beatport "Techno (Peak Time / Driving)"
     first = re.sub(r'[<>:"?*\x00-\x1f]', "", first)
     first = re.sub(r"\s+", " ", first).strip(" .").title()

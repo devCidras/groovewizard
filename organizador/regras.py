@@ -6,7 +6,7 @@ Folder names are the canonical genres (mostly Beatport's). Edit freely.
 NO_GENRE = "Sem Genero"
 OTHER = "Outros"
 
-# canonical genre -> tag spellings that mean the same thing (compared after .title())
+# Folder genre -> source tags filed under it (compared after .title()).
 _GROUPS = {
     "Drum & Bass": ["Drum And Bass", "Drum N Bass", "Dnb", "Jungle"],
     "Hard Groove": ["Hardgroove", "Techno-Hardgroove", "Techno - Hardgroove"],
@@ -33,7 +33,7 @@ _GROUPS = {
     "Minimal - Deep Tech": ["Minimal", "Deep Tech", "Minimal-Deep Tech", "Minimal House", "Minimal Techno",
                             "Minimal-Tech House", "Minimal - Deep Tech - Minimal House"],
     "Uk Garage": ["Uk Garage - Bassline", "Future Garage"],
-    "Dance": ["Dance - Pop", "Dance-Pop", "Dance - Electro Pop", "Edm", "Dance - Electronic", "Electro House", "Танцевальная Музыка"],
+    "Dance": ["Dance - Pop", "Dance-Pop", "Dance - Electro Pop", "Edm", "Dance - Electronic", "Electro House"],
     # genres with too few tracks for their own folder
     OTHER: ["Pop", "Alternative Rock", "Klassiek", "Dub", "Hardstyle", "Pop Rock", "Tek", "Hard Dance - Hardcore - Neo Rave",
             "Dj Tools - Acapellas", "Hip-Hop-Rap", "Brazilian Funk", "Contemporary Christian", "Hard Rock", "Classical",
@@ -41,8 +41,27 @@ _GROUPS = {
 }
 # tags that say nothing about the style: treated as "no genre" so the online lookup tries
 _GENERIC = ["Unknown", "Other", "Various", "Club", "Electronic", "Compilation Electronic", "Compilation Electronica",
-            "Électronique", "Электронная Музыка"]
+            "Électronique", "Электронная Музыка", "Танцевальная Музыка"]
 ALIAS = {**{g: "" for g in _GENERIC}, **{s: g for g, subs in _GROUPS.items() for s in subs}}
+
+# Equivalent spellings for the genre tag. Folder aliases above also group distinct styles.
+GENRE_TAG_SPELLINGS = {
+    "Afro House": (),
+    "Breaks - Breakbeat - UK Bass": (),
+    "Deep House": ("House Deep",),
+    "Drum & Bass": ("Drum And Bass", "Drum N Bass", "DnB"),
+    "Electronica - Downtempo": (),
+    "Hard Groove": ("Techno - Hardgroove",),
+    "Jackin House": ("Jackin' House",),
+    "Progressive House": ("House Progressive",),
+    "Schranz": ("Techno-Schranz", "Hard Techno-Schranz"),
+    "Tech House": ("House Tech",),
+    "Techno": ("#Deep #Industrial #Techno",),
+    "Techno (Peak Time - Driving)": ("Techno (Peak Time - Driving) - Peak Time",),
+    "Techno (Raw - Deep - Hypnotic)": ("Techno ((Raw - Deep - Hypnotic)",),
+    "Techno House": ("Электронная Музыка Техно-Хаус",),
+    "UK Garage": (),
+}
 
 # Untagged files: genre from the pack/folder name they came from. Order matters: most specific first.
 FOLDER_RULES = [
